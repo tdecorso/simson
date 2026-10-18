@@ -137,33 +137,27 @@ void json_value_destroy(json_value_t* v) {
 
 typedef struct parser {
     const uint8_t* cur;
-    const uint8_t* start;
     const uint8_t* end;
-    size_t start_line;
-    size_t start_col;
     size_t line;
     size_t col;
 } parser_t;
 
-void parser_init(parser_t* p, const u8* buffer, size_t len) {
+static void parser_init(parser_t* p, const u8* buffer, size_t len) {
     p->cur = buffer;
-    p->start = buffer;
     p->end = buffer + len;
-    p->start_line = 1;
-    p->start_col = 0;
     p->line = 1;
     p->col = 0;
 }
 
-bool at_end(parser_t* p) {
+static bool at_end(parser_t* p) {
     return p->cur >= p->end;
 }
 
-u8 peek(parser_t* p) {
+static u8 peek(parser_t* p) {
     return at_end(p) ? '\0' : *p->cur;
 }
 
-void advance(parser_t* p) {
+static void advance(parser_t* p) {
     u8 c = peek(p);
     if (c == '\0') return;
     if (c == '\n') {
@@ -174,7 +168,7 @@ void advance(parser_t* p) {
     p->cur++;
 }
 
-void skip_ws(parser_t* p) {
+static void skip_ws(parser_t* p) {
     while (1) {
         u8 c = peek(p);
         if (c != '\n' && c != '\r' && c != '\t' && c != ' ') break;
@@ -182,19 +176,19 @@ void skip_ws(parser_t* p) {
     }
 }
 
-json_value_t* parse_object(parser_t* p) {
+static json_value_t* parse_object(parser_t* p) {
     return NULL;
 }
 
-json_value_t* parse_array(parser_t* p) {
+static json_value_t* parse_array(parser_t* p) {
     return NULL;
 }
 
-json_value_t* parse_string(parser_t* p) {
+static json_value_t* parse_string(parser_t* p) {
     return NULL;
 }
 
-json_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
+static json_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
     for (size_t i = 0; i < len; i++) {
         u8 c = peek(p);
         if (c != pattern[i]) return NULL;
@@ -207,15 +201,76 @@ json_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
     return v;
 }
 
-json_value_t* parse_number(parser_t* p) {
-    return NULL;
-}
-
-bool is_digit(u8 c) {
+static bool is_digit(u8 c) {
     return c >= '0' && c <= '9';
 }
 
-json_value_t* parse_value(parser_t* p) {
+static bool is_digit1_9(u8 c) {
+    return c >= '1' && c <= '9';
+}
+
+static json_value_t* parse_number(parser_t* p) {
+    const u8* start = p->cur;
+    u8 c = peek(p);
+    if (c == '-') {
+        advance(p);
+        c = peek(p);
+    }
+    if (c == '0') {
+        advance(p);
+        c = peek(p);
+        if (is_digit1_9(c)) return NULL;
+    }
+    else if (is_digit1_9(c)) {
+        advance(p);
+        while (1) {
+            c = peek(p);
+            if (!is_digit(c)) break;
+            advance(p);
+        }
+    } else return NULL;
+    if (c == '.') {
+        advance(p);
+        c = peek(p);
+        if (!is_digit(c)) return NULL;
+        advance(p);
+        while (1) {
+            c = peek(p);
+            if (!is_digit(c)) break;
+            advance(p);
+        }
+    }
+    if (c == 'e' || c == 'E') {
+        advance(p);
+        c = peek(p);
+        if (c == '+' || c == '-') {
+            advance(p);
+            c = peek(p);
+        }
+        if (!is_digit(c)) return NULL;
+        advance(p);
+        while (1) {
+            c = peek(p);
+            if (!is_digit(c)) break;
+            advance(p);
+        }
+    }
+    size_t len = (size_t) (p->cur - start);
+    char* buffer = malloc(len + 1);
+    if (!buffer) return NULL;
+    memcpy(buffer, start, len);
+    buffer[len] = '\0';
+    json_value_t* v = json_value_create(JSON_NUMBER);
+    if (!v) {
+        free(buffer);
+        return NULL;
+    }
+    v->as.number = strtod(buffer, NULL);
+    free(buffer);
+    return v;
+}
+
+static json_value_t* parse_value(parser_t* p) {
     skip_ws(p);
     u8 c = peek(p);
     switch (c) {
