@@ -1,4 +1,5 @@
 #include "json.h"
+#include <string.h>
 
 int test_json_boolean_true() {
     uint8_t stream[] = "true";
@@ -78,6 +79,42 @@ int test_json_number_not_valid() {
     return 0;
 }
 
+int test_json_string_ascii() {
+    char stream[] = "\"hello\"";
+    json_value_t* v = json_value_parse((const uint8_t*)stream, sizeof(stream) - 1);
+    if (!v) return 1;
+    if (strncmp(stream, v->as.string->data, v->as.string->len) != 0) return 1;
+    json_value_destroy(v);
+    return 0;
+}
+
+int test_json_string_escaped() {
+    char stream[] = "\"hello\\bworld\"";
+    json_value_t* v = json_value_parse((const uint8_t*)stream, sizeof(stream) - 1);
+    if (!v) return 1;
+    if (strncmp(stream, v->as.string->data, v->as.string->len) != 0) return 1;
+    json_value_destroy(v);
+    return 0;
+}
+
+int test_json_string_utf8() {
+    char stream[] = "\"hello😀\"";
+    json_value_t* v = json_value_parse((const uint8_t*)stream, sizeof(stream) - 1);
+    if (!v) return 1;
+    if (strncmp(stream, v->as.string->data, v->as.string->len) != 0) return 1;
+    json_value_destroy(v);
+    return 0;
+}
+
+int test_json_string_utf16_surrogate_pair() {
+    char stream[] = "\"hello\\uD83D\\uDE00\"";
+    json_value_t* v = json_value_parse((const uint8_t*)stream,sizeof(stream) - 1);
+    if (!v) return 1;
+    if (strncmp(stream, v->as.string->data, v->as.string->len) != 0) return 1;
+    json_value_destroy(v);
+    return 0;
+}
+
 int main(void) {
     if (test_json_boolean_true()) return 1;
     if (test_json_boolean_false()) return 1;
@@ -87,6 +124,10 @@ int main(void) {
     if (test_json_number_exponential()) return 1;
     if (test_json_number_zero()) return 1;
     if (test_json_number_not_valid()) return 1;
+    if (test_json_string_ascii()) return 1;
+    if (test_json_string_escaped()) return 1;
+    if (test_json_string_utf8()) return 1;
+    if (test_json_string_utf16_surrogate_pair()) return 1;
 
     return 0;
 }

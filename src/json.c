@@ -3,6 +3,7 @@
 #include <string.h>
 
 typedef uint8_t u8;
+typedef uint32_t u32;
 
 static json_text_t* text_create(const char* text, size_t len) {
     json_text_t* t = malloc(sizeof(json_text_t));
@@ -184,8 +185,137 @@ static json_value_t* parse_array(parser_t* p) {
     return NULL;
 }
 
+static int utf8_decode(const uint8_t* buffer, size_t offset, size_t len, uint32_t* cp_out, size_t* cp_len_out) {
+    if (!buffer || len == 0) return 1;
+    if (!cp_out) return 1;
+    if (offset >= len) return 1;
+    u8 b0 = buffer[offset];
+    if (b0 <= 0x7F) {
+        *cp_out = b0;
+        if (cp_len_out) *cp_len_out = 1;
+        return 0;
+    }
+    if (b0 >= 0xC2 && b0 <= 0xDF) {
+        if (len < 2) return 1;
+        if (offset + 1 >= len) return 1;
+        u8 b1 = buffer[offset + 1];
+        if (b1 < 0x80 || b1 > 0xBF) return 1;
+        *cp_out = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+        if (cp_len_out) *cp_len_out = 2;
+        return 0;
+    }
+    if (b0 >= 0xE0 && b0 <= 0xEF) {
+        if (len < 3) return 1;
+        if (offset + 2 >= len) return 1;
+        u8 b1 = buffer[offset + 1];
+        u8 b2 = buffer[offset + 2];
+        if (b1 < 0x80 || b1 > 0xBF ||b2 < 0x80 || b2 > 0xBF) return 1;
+        if ((b0 == 0xE0 && b1 < 0xA0) ||(b0 == 0xED && b1 > 0x9F)) return 1;
+        *cp_out = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+        if (*cp_out >= 0xD800 && *cp_out <= 0xDFFF) return 1;
+        if (cp_len_out) *cp_len_out = 3;
+        return 0;
+    }
+
+    if (b0 >= 0xF0 && b0 <= 0xF4) {
+        if (len < 4) return 1;
+        if (offset + 3 >= len) return 1;
+        u8 b1 = buffer[offset + 1];
+        u8 b2 = buffer[offset + 2];
+        u8 b3 = buffer[offset + 3];
+        if (b1 < 0x80 || b1 > 0xBF ||
+            b2 < 0x80 || b2 > 0xBF ||
+            b3 < 0x80 || b3 > 0xBF) return 1;
+
+        if ((b0 == 0xF0 && b1 < 0x90) ||(b0 == 0xF4 && b1 > 0x8F)) return 1;
+        *cp_out = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+        if (*cp_out >= 0xD800 && *cp_out <= 0xDFFF) return 1;
+        if (cp_len_out) *cp_len_out = 4;
+        return 0;
+    }
+
+    return 1;
+}
+
+static bool is_unescaped(u32 cp) {
+    return cp == 0x20 || cp == 0x21 || (cp >= 0x23 && cp <= 0x5B) || (cp >= 0x5D && cp <= 0x10FFFF);
+}
+
+static bool is_hex(u8 c) {
+    return (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c <= '9');
+}
+
+static u8 hex_value(u8 c) {
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    else return c - '0';
+}
+
+static u32 parse_hex(parser_t* p) {
+    u32 cp = 0;
+    for (size_t i = 0; i < 4; i++) {
+        u8 b = peek(p);
+        if (!is_hex(b)) return 0x10000;
+        advance(p);
+        cp = (cp << 4) | hex_value(b);
+    }
+    return cp;
+}
+
 static json_value_t* parse_string(parser_t* p) {
-    return NULL;
+    const u8* start = p->cur;
+    advance(p);
+
+    while (1) {
+        u32 cp = 0; size_t cp_len = 0;
+        if (utf8_decode(p->cur, 0, (size_t) (p->end - p->cur), &cp, &cp_len)) return NULL;
+        if (cp == '\0') return NULL;
+        if (cp == '"') {
+            advance(p);
+            break;
+        }
+        if (is_unescaped(cp)) {
+            p->cur += cp_len;
+            continue;
+        }
+        if (cp == '\\') {
+            advance(p);
+            u8 c = peek(p);
+            if (c == '"' || c == '\\' || c == '/' || c == 'b' || c == 'f' || c == 'n' || c == 'r'  || c == 't') {
+                advance(p);
+                continue;
+            }
+            if (c == 'u') {
+                advance(p);
+                u32 w1 = parse_hex(p);
+                if (w1 > 0xFFFF) return NULL;
+                if (w1 >= 0xD800 && w1 <= 0xDFFF) {
+                    c = peek(p);
+                    if (c != '\\') return NULL;
+                    advance(p);
+                    c = peek(p);
+                    if (c != 'u') return NULL;
+                    advance(p);
+                    u32 w2 = parse_hex(p);
+                    if (w2 < 0xDC00 || w2 > 0xDFFF) return NULL;
+                    if (w2 > 0xFFFF) return NULL;
+                } else if (w1 >= 0xDC00 && w1 <= 0xDFFF) return NULL;
+                continue;
+            }
+        }
+        return NULL;
+    }
+
+    size_t required = (size_t) (p->cur - start);
+    json_text_t* text = text_create((const char*)start, required);
+    if (!text) return NULL;
+    json_value_t* v = json_value_create(JSON_STRING);
+    if (!v) {
+        text_destroy(text);
+        return NULL;
+    }
+    v->as.string = text;
+    return v;
 }
 
 static json_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
