@@ -27,13 +27,13 @@ typedef struct json_member {
 } json_member_t;
 
 typedef struct json_array {
-    json_member_t** data;
+    json_value_t** data;
     size_t len;
     size_t cap;
 } json_array_t;
 
 typedef struct json_object {
-    json_value_t** data;
+    json_member_t** data;
     size_t len;
     size_t cap;
 } json_object_t;

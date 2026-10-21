@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define MAX_DEPTH 1024
+#define DEFAULT_ARRAY_CAPACITY 32
+
 typedef uint8_t u8;
 typedef uint32_t u32;
 
@@ -46,7 +49,7 @@ static void member_destroy(json_member_t* m) {
 static json_array_t* array_create(size_t capacity) {
     json_array_t* a = malloc(sizeof(json_array_t));
     if (!a) return NULL;
-    a->data = malloc(sizeof(json_member_t*) * capacity);
+    a->data = malloc(sizeof(json_value_t*) * capacity);
     if (!a->data) {
         free(a);
         return NULL;
@@ -56,18 +59,32 @@ static json_array_t* array_create(size_t capacity) {
     return a;
 }
 
+static int array_append(json_array_t* a, json_value_t* v) {
+    if (a->len == a->cap) {
+        size_t ncap = a->cap * 2;
+        json_value_t** nvalues = realloc(a->data, ncap * sizeof(json_value_t*));
+        if (!nvalues) return 1;
+        a->data = nvalues;
+        a->cap = ncap;
+    }
+    a->data[a->len] = v;
+    a->len++;
+    return 0;
+}
+
 static void array_destroy(json_array_t* arr) {
     if (!arr) return;
     for (size_t i = 0; i < arr->len; i++) {
-        member_destroy(arr->data[i]);
+        json_value_destroy(arr->data[i]);
     }
+    free(arr->data);
     free(arr);
 }
 
 static json_object_t* object_create(size_t capacity) {
     json_object_t* o = malloc(sizeof(json_object_t));
     if (!o) return NULL;
-    o->data = malloc(sizeof(json_value_t*) * capacity);
+    o->data = malloc(sizeof(json_member_t*) * capacity);
     if (!o->data) {
         free(o);
         return NULL;
@@ -80,8 +97,9 @@ static json_object_t* object_create(size_t capacity) {
 static void object_destroy(json_object_t* obj) {
     if (!obj) return;
     for (size_t i = 0; i < obj->len; i++) {
-        json_value_destroy(obj->data[i]);
+        member_destroy(obj->data[i]);
     }
+    free(obj->data);
     free(obj);
 }
 
@@ -137,10 +155,11 @@ void json_value_destroy(json_value_t* v) {
 }
 
 typedef struct parser {
-    const uint8_t* cur;
-    const uint8_t* end;
+    const u8* cur;
+    const u8* end;
     size_t line;
     size_t col;
+    size_t depth;
 } parser_t;
 
 static void parser_init(parser_t* p, const u8* buffer, size_t len) {
@@ -148,6 +167,7 @@ static void parser_init(parser_t* p, const u8* buffer, size_t len) {
     p->end = buffer + len;
     p->line = 1;
     p->col = 0;
+    p->depth = 0;
 }
 
 static bool at_end(parser_t* p) {
@@ -175,14 +195,6 @@ static void skip_ws(parser_t* p) {
         if (c != '\n' && c != '\r' && c != '\t' && c != ' ') break;
         advance(p);
     }
-}
-
-static json_value_t* parse_object(parser_t* p) {
-    return NULL;
-}
-
-static json_value_t* parse_array(parser_t* p) {
-    return NULL;
 }
 
 static int utf8_decode(const uint8_t* buffer, size_t offset, size_t len, uint32_t* cp_out, size_t* cp_len_out) {
@@ -398,6 +410,61 @@ static json_value_t* parse_number(parser_t* p) {
     v->as.number = strtod(buffer, NULL);
     free(buffer);
     return v;
+}
+
+static json_value_t* parse_value(parser_t* p);
+
+static json_value_t* parse_array(parser_t* p) {
+    if (p->depth > MAX_DEPTH) return NULL;
+    json_value_t* v = json_value_create(JSON_ARRAY);
+    if (!v) return NULL;
+    advance(p);
+    u8 c = peek(p);
+    if (c == ']') {
+        advance(p);
+        return v;
+    }
+    v->as.array = array_create(DEFAULT_ARRAY_CAPACITY);
+    if (!v->as.array) {
+        json_value_destroy(v);
+        return NULL;
+    }
+    json_value_t* iv = parse_value(p);
+    if (!iv) {
+        json_value_destroy(v);
+        return NULL;
+    }
+    if (array_append(v->as.array, iv)) {
+        json_value_destroy(iv);
+        json_value_destroy(v);
+        return NULL;
+    }
+    p->depth++;
+    while (1) {
+        c = peek(p);
+        if (c != ',') break;
+        advance(p);
+        iv = parse_value(p);
+        if (!iv) {
+            json_value_destroy(v);
+            return NULL;
+        }
+        if (array_append(v->as.array, iv)) {
+            json_value_destroy(iv);
+            json_value_destroy(v);
+            return NULL;
+        }
+    }
+    c = peek(p);
+    if (c == ']') {
+        advance(p);
+        return v;
+    }
+    return NULL;
+}
+
+static json_value_t* parse_object(parser_t* p) {
+    return NULL;
 }
 
 static json_value_t* parse_value(parser_t* p) {

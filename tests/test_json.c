@@ -115,6 +115,15 @@ int test_json_string_utf16_surrogate_pair() {
     return 0;
 }
 
+int test_json_array() {
+    char stream[] = "[1, 2, 3, 4, 5]";
+    json_value_t* v = json_value_parse((const uint8_t*)stream,sizeof(stream) - 1);
+    if (!v) return 1;
+    if (v->as.array->len != 5) return 1;
+    json_value_destroy(v);
+    return 0;
+}
+
 int main(void) {
     if (test_json_boolean_true()) return 1;
     if (test_json_boolean_false()) return 1;
@@ -128,6 +137,7 @@ int main(void) {
     if (test_json_string_escaped()) return 1;
     if (test_json_string_utf8()) return 1;
     if (test_json_string_utf16_surrogate_pair()) return 1;
+    if (test_json_array()) return 1;
 
     return 0;
 }
