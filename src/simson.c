@@ -1,4 +1,4 @@
-#include "json.h"
+#include "simson.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,8 +17,8 @@ typedef struct parser {
     size_t depth;
 } parser_t;
 
-static json_text_t* text_create(const char* text, size_t len) {
-    json_text_t* t = malloc(sizeof(json_text_t));
+static simson_text_t* text_create(const char* text, size_t len) {
+    simson_text_t* t = malloc(sizeof(simson_text_t));
     if (!t) return NULL;
     t->data = malloc(len);
     if (!t->data) {
@@ -30,31 +30,31 @@ static json_text_t* text_create(const char* text, size_t len) {
     return t;
 }
 
-static void text_destroy(json_text_t* t) {
+static void text_destroy(simson_text_t* t) {
     if (!t) return;
     free(t->data);
     free(t);
 }
 
-static json_member_t* member_create(json_text_t* text, json_value_t* v) {
-    json_member_t* m = malloc(sizeof(json_member_t)); 
+static simson_member_t* member_create(simson_text_t* text, simson_value_t* v) {
+    simson_member_t* m = malloc(sizeof(simson_member_t));
     if (!m) return NULL;
     m->key = text;
     m->value = v;
     return m;
 }
 
-static void member_destroy(json_member_t* m) {
+static void member_destroy(simson_member_t* m) {
     if (!m) return;
     text_destroy(m->key);
-    json_value_destroy(m->value);
+    simson_value_destroy(m->value);
     free(m);
 }
 
-static json_array_t* array_create(size_t capacity) {
-    json_array_t* a = malloc(sizeof(json_array_t));
+static simson_array_t* array_create(size_t capacity) {
+    simson_array_t* a = malloc(sizeof(simson_array_t));
     if (!a) return NULL;
-    a->data = malloc(sizeof(json_value_t*) * capacity);
+    a->data = malloc(sizeof(simson_value_t*) * capacity);
     if (!a->data) {
         free(a);
         return NULL;
@@ -64,10 +64,10 @@ static json_array_t* array_create(size_t capacity) {
     return a;
 }
 
-static int array_append(json_array_t* a, json_value_t* v) {
+static int array_append(simson_array_t* a, simson_value_t* v) {
     if (a->len == a->cap) {
         size_t ncap = a->cap * 2;
-        json_value_t** nvalues = realloc(a->data, ncap * sizeof(json_value_t*));
+        simson_value_t** nvalues = realloc(a->data, ncap * sizeof(simson_value_t*));
         if (!nvalues) return 1;
         a->data = nvalues;
         a->cap = ncap;
@@ -77,19 +77,19 @@ static int array_append(json_array_t* a, json_value_t* v) {
     return 0;
 }
 
-static void array_destroy(json_array_t* arr) {
+static void array_destroy(simson_array_t* arr) {
     if (!arr) return;
     for (size_t i = 0; i < arr->len; i++) {
-        json_value_destroy(arr->data[i]);
+        simson_value_destroy(arr->data[i]);
     }
     free(arr->data);
     free(arr);
 }
 
-static json_object_t* object_create(size_t capacity) {
-    json_object_t* o = malloc(sizeof(json_object_t));
+static simson_object_t* object_create(size_t capacity) {
+    simson_object_t* o = malloc(sizeof(simson_object_t));
     if (!o) return NULL;
-    o->data = malloc(sizeof(json_member_t*) * capacity);
+    o->data = malloc(sizeof(simson_member_t*) * capacity);
     if (!o->data) {
         free(o);
         return NULL;
@@ -99,10 +99,10 @@ static json_object_t* object_create(size_t capacity) {
     return o;
 }
 
-static int object_append(json_object_t* o, json_member_t* m) {
+static int object_append(simson_object_t* o, simson_member_t* m) {
     if (o->len == o->cap) {
         size_t ncap = o->cap * 2;
-        json_member_t** nmembers = realloc(o->data, ncap * sizeof(json_member_t*));
+        simson_member_t** nmembers = realloc(o->data, ncap * sizeof(simson_member_t*));
         if (!nmembers) return 1;
         o->data = nmembers;
         o->cap = ncap;
@@ -112,7 +112,7 @@ static int object_append(json_object_t* o, json_member_t* m) {
     return 0;
 }
 
-static void object_destroy(json_object_t* obj) {
+static void object_destroy(simson_object_t* obj) {
     if (!obj) return;
     for (size_t i = 0; i < obj->len; i++) {
         member_destroy(obj->data[i]);
@@ -121,28 +121,28 @@ static void object_destroy(json_object_t* obj) {
     free(obj);
 }
 
-json_value_t* json_value_create(json_type_t type) {
-    json_value_t* v = malloc(sizeof(json_value_t));
+simson_value_t* simson_value_create(simson_type_t type) {
+    simson_value_t* v = malloc(sizeof(simson_value_t));
     if (!v) return NULL;
     v->type = type;
     switch(v->type) {
-    case JSON_BOOL: {
+    case SIMSON_BOOL: {
         v->as.boolean = false;
         break;
     }
-    case JSON_NUMBER: {
+    case SIMSON_NUMBER: {
         v->as.number = 0;
         break;
     }
-    case JSON_STRING: {
+    case SIMSON_STRING: {
         v->as.string = NULL;
         break;
     }
-    case JSON_ARRAY: {
+    case SIMSON_ARRAY: {
         v->as.array = NULL;
         break;
     }
-    case JSON_OBJECT: {
+    case SIMSON_OBJECT: {
         v->as.object = NULL;
         break;
     }
@@ -151,18 +151,18 @@ json_value_t* json_value_create(json_type_t type) {
     return v;
 }
 
-void json_value_destroy(json_value_t* v) {
+void simson_value_destroy(simson_value_t* v) {
     if (!v) return;
     switch (v->type) {
-    case JSON_STRING: {
+    case SIMSON_STRING: {
         text_destroy(v->as.string);
         break;
     }
-    case JSON_ARRAY: {
+    case SIMSON_ARRAY: {
         array_destroy(v->as.array);
         break;
     }
-    case JSON_OBJECT: {
+    case SIMSON_OBJECT: {
         object_destroy(v->as.object);
         break;
     }
@@ -286,7 +286,7 @@ static u32 parse_hex(parser_t* p) {
     return cp;
 }
 
-static json_text_t* parse_text(parser_t* p) {
+static simson_text_t* parse_text(parser_t* p) {
     const u8* start = p->cur;
     advance(p);
 
@@ -334,10 +334,10 @@ static json_text_t* parse_text(parser_t* p) {
     return text_create((const char*)start, required);
 }
 
-static json_value_t* parse_string(parser_t* p) {
-    json_text_t* text = parse_text(p);
+static simson_value_t* parse_string(parser_t* p) {
+    simson_text_t* text = parse_text(p);
     if (!text) return NULL;
-    json_value_t* v = json_value_create(JSON_STRING);
+    simson_value_t* v = simson_value_create(SIMSON_STRING);
     if (!v) {
         text_destroy(text);
         return NULL;
@@ -346,13 +346,13 @@ static json_value_t* parse_string(parser_t* p) {
     return v;
 }
 
-static json_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
+static simson_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
     for (size_t i = 0; i < len; i++) {
         u8 c = peek(p);
         if (c != pattern[i]) return NULL;
         advance(p);
     }
-    json_value_t* v = json_value_create(JSON_BOOL);
+    simson_value_t* v = simson_value_create(SIMSON_BOOL);
     if (!v) return NULL;
     if (pattern[0] == 'n') return v;
     v->as.boolean = len == 4;
@@ -367,7 +367,7 @@ static bool is_digit1_9(u8 c) {
     return c >= '1' && c <= '9';
 }
 
-static json_value_t* parse_number(parser_t* p) {
+static simson_value_t* parse_number(parser_t* p) {
     const u8* start = p->cur;
     u8 c = peek(p);
     if (c == '-') {
@@ -418,7 +418,7 @@ static json_value_t* parse_number(parser_t* p) {
     if (!buffer) return NULL;
     memcpy(buffer, start, len);
     buffer[len] = '\0';
-    json_value_t* v = json_value_create(JSON_NUMBER);
+    simson_value_t* v = simson_value_create(SIMSON_NUMBER);
     if (!v) {
         free(buffer);
         return NULL;
@@ -428,11 +428,11 @@ static json_value_t* parse_number(parser_t* p) {
     return v;
 }
 
-static json_value_t* parse_value(parser_t* p);
+static simson_value_t* parse_value(parser_t* p);
 
-static json_value_t* parse_array(parser_t* p) {
+static simson_value_t* parse_array(parser_t* p) {
     if (p->depth > MAX_DEPTH) return NULL;
-    json_value_t* v = json_value_create(JSON_ARRAY);
+    simson_value_t* v = simson_value_create(SIMSON_ARRAY);
     if (!v) return NULL;
     advance(p);
     u8 c = peek(p);
@@ -442,17 +442,17 @@ static json_value_t* parse_array(parser_t* p) {
     }
     v->as.array = array_create(DEFAULT_ARRAY_CAPACITY);
     if (!v->as.array) {
-        json_value_destroy(v);
+        simson_value_destroy(v);
         return NULL;
     }
-    json_value_t* iv = parse_value(p);
+    simson_value_t* iv = parse_value(p);
     if (!iv) {
-        json_value_destroy(v);
+        simson_value_destroy(v);
         return NULL;
     }
     if (array_append(v->as.array, iv)) {
-        json_value_destroy(iv);
-        json_value_destroy(v);
+        simson_value_destroy(iv);
+        simson_value_destroy(v);
         return NULL;
     }
     p->depth++;
@@ -462,12 +462,12 @@ static json_value_t* parse_array(parser_t* p) {
         advance(p);
         iv = parse_value(p);
         if (!iv) {
-            json_value_destroy(v);
+            simson_value_destroy(v);
             return NULL;
         }
         if (array_append(v->as.array, iv)) {
-            json_value_destroy(iv);
-            json_value_destroy(v);
+            simson_value_destroy(iv);
+            simson_value_destroy(v);
             return NULL;
         }
     }
@@ -479,8 +479,8 @@ static json_value_t* parse_array(parser_t* p) {
     return NULL;
 }
 
-static json_member_t* parse_member(parser_t* p) {
-    json_text_t* t = parse_text(p);
+static simson_member_t* parse_member(parser_t* p) {
+    simson_text_t* t = parse_text(p);
     if (!t) return NULL;
     u8 c = peek(p);
     if (c != ':') {
@@ -488,7 +488,7 @@ static json_member_t* parse_member(parser_t* p) {
         return NULL;
     }
     advance(p);
-    json_value_t* v = parse_value(p);
+    simson_value_t* v = parse_value(p);
     if (!v) {
         text_destroy(t);
         return NULL;
@@ -496,9 +496,9 @@ static json_member_t* parse_member(parser_t* p) {
     return member_create(t, v);
 }
 
-static json_value_t* parse_object(parser_t* p) {
+static simson_value_t* parse_object(parser_t* p) {
     if (p->depth > MAX_DEPTH) return NULL;
-    json_value_t* v = json_value_create(JSON_OBJECT);
+    simson_value_t* v = simson_value_create(SIMSON_OBJECT);
     if (!v) return NULL;
     advance(p);
     u8 c = peek(p);
@@ -508,14 +508,14 @@ static json_value_t* parse_object(parser_t* p) {
     }
     v->as.object = object_create(DEFAULT_OBJECT_CAPACITY);
     if (!v->as.object) {
-        json_value_destroy(v);
+        simson_value_destroy(v);
         return NULL;
     }
-    json_member_t* m = parse_member(p);
+    simson_member_t* m = parse_member(p);
     if (!m) return NULL;
     if (object_append(v->as.object, m)) {
         member_destroy(m);
-        json_value_destroy(v);
+        simson_value_destroy(v);
         return NULL;
     }
     p->depth++;
@@ -525,12 +525,12 @@ static json_value_t* parse_object(parser_t* p) {
         advance(p);
         m = parse_member(p);
         if (!m) {
-            json_value_destroy(v);
+            simson_value_destroy(v);
             return NULL;
         }
         if (object_append(v->as.object, m)) {
             member_destroy(m);
-            json_value_destroy(v);
+            simson_value_destroy(v);
             return NULL;
         }
     }
@@ -542,7 +542,7 @@ static json_value_t* parse_object(parser_t* p) {
     return NULL;
 }
 
-static json_value_t* parse_value(parser_t* p) {
+static simson_value_t* parse_value(parser_t* p) {
     skip_ws(p);
     u8 c = peek(p);
     switch (c) {
@@ -561,7 +561,7 @@ static json_value_t* parse_value(parser_t* p) {
     return NULL;
 }
 
-json_value_t* json_value_parse(const u8* buffer, size_t len) {
+simson_value_t* simson_value_parse(const u8* buffer, size_t len) {
     if (!buffer || len == 0) return NULL;
     parser_t parser; parser_init(&parser, buffer, len);
     return parse_value(&parser);
