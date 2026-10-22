@@ -4,9 +4,18 @@
 
 #define MAX_DEPTH 1024
 #define DEFAULT_ARRAY_CAPACITY 32
+#define DEFAULT_OBJECT_CAPACITY 32
 
 typedef uint8_t u8;
 typedef uint32_t u32;
+
+typedef struct parser {
+    const u8* cur;
+    const u8* end;
+    size_t line;
+    size_t col;
+    size_t depth;
+} parser_t;
 
 static json_text_t* text_create(const char* text, size_t len) {
     json_text_t* t = malloc(sizeof(json_text_t));
@@ -27,15 +36,11 @@ static void text_destroy(json_text_t* t) {
     free(t);
 }
 
-static json_member_t* member_create(const char* text, size_t len) {
-    json_member_t* m = malloc(sizeof(json_member_t));
+static json_member_t* member_create(json_text_t* text, json_value_t* v) {
+    json_member_t* m = malloc(sizeof(json_member_t)); 
     if (!m) return NULL;
-    m->key = text_create(text, len);
-    if (!m->key) {
-        free(m);
-        return NULL;
-    }
-    m->value = NULL;
+    m->key = text;
+    m->value = v;
     return m;
 }
 
@@ -92,6 +97,19 @@ static json_object_t* object_create(size_t capacity) {
     o->len = 0;
     o->cap = capacity;
     return o;
+}
+
+static int object_append(json_object_t* o, json_member_t* m) {
+    if (o->len == o->cap) {
+        size_t ncap = o->cap * 2;
+        json_member_t** nmembers = realloc(o->data, ncap * sizeof(json_member_t*));
+        if (!nmembers) return 1;
+        o->data = nmembers;
+        o->cap = ncap;
+    }
+    o->data[o->len] = m;
+    o->len++;
+    return 0;
 }
 
 static void object_destroy(json_object_t* obj) {
@@ -154,13 +172,7 @@ void json_value_destroy(json_value_t* v) {
     free(v);
 }
 
-typedef struct parser {
-    const u8* cur;
-    const u8* end;
-    size_t line;
-    size_t col;
-    size_t depth;
-} parser_t;
+
 
 static void parser_init(parser_t* p, const u8* buffer, size_t len) {
     p->cur = buffer;
@@ -274,7 +286,7 @@ static u32 parse_hex(parser_t* p) {
     return cp;
 }
 
-static json_value_t* parse_string(parser_t* p) {
+static json_text_t* parse_text(parser_t* p) {
     const u8* start = p->cur;
     advance(p);
 
@@ -319,7 +331,11 @@ static json_value_t* parse_string(parser_t* p) {
     }
 
     size_t required = (size_t) (p->cur - start);
-    json_text_t* text = text_create((const char*)start, required);
+    return text_create((const char*)start, required);
+}
+
+static json_value_t* parse_string(parser_t* p) {
+    json_text_t* text = parse_text(p);
     if (!text) return NULL;
     json_value_t* v = json_value_create(JSON_STRING);
     if (!v) {
@@ -463,7 +479,66 @@ static json_value_t* parse_array(parser_t* p) {
     return NULL;
 }
 
+static json_member_t* parse_member(parser_t* p) {
+    json_text_t* t = parse_text(p);
+    if (!t) return NULL;
+    u8 c = peek(p);
+    if (c != ':') {
+        text_destroy(t);
+        return NULL;
+    }
+    advance(p);
+    json_value_t* v = parse_value(p);
+    if (!v) {
+        text_destroy(t);
+        return NULL;
+    }
+    return member_create(t, v);
+}
+
 static json_value_t* parse_object(parser_t* p) {
+    if (p->depth > MAX_DEPTH) return NULL;
+    json_value_t* v = json_value_create(JSON_OBJECT);
+    if (!v) return NULL;
+    advance(p);
+    u8 c = peek(p);
+    if (c == '}') {
+        advance(p);
+        return v;
+    }
+    v->as.object = object_create(DEFAULT_OBJECT_CAPACITY);
+    if (!v->as.object) {
+        json_value_destroy(v);
+        return NULL;
+    }
+    json_member_t* m = parse_member(p);
+    if (!m) return NULL;
+    if (object_append(v->as.object, m)) {
+        member_destroy(m);
+        json_value_destroy(v);
+        return NULL;
+    }
+    p->depth++;
+    while (1) {
+        c = peek(p);
+        if (c != ':') break;
+        advance(p);
+        m = parse_member(p);
+        if (!m) {
+            json_value_destroy(v);
+            return NULL;
+        }
+        if (object_append(v->as.object, m)) {
+            member_destroy(m);
+            json_value_destroy(v);
+            return NULL;
+        }
+    }
+    c = peek(p);
+    if (c == '}') {
+        advance(p);
+        return v;
+    }
     return NULL;
 }
 
