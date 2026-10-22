@@ -521,7 +521,7 @@ static simson_value_t* parse_object(parser_t* p) {
     p->depth++;
     while (1) {
         c = peek(p);
-        if (c != ':') break;
+        if (c != ',') break;
         advance(p);
         m = parse_member(p);
         if (!m) {
