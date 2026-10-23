@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_DEPTH 1024
-#define DEFAULT_ARRAY_CAPACITY 32
-#define DEFAULT_OBJECT_CAPACITY 32
+#define MAX_DEPTH 500
+#define DEFAULT_ARRAY_CAPACITY 4
+#define DEFAULT_OBJECT_CAPACITY 4
 
 typedef uint8_t u8;
 typedef uint32_t u32;
@@ -447,6 +447,7 @@ static simson_value_t* parse_array(parser_t* p) {
     u8 c = peek(p);
     if (c == ']') {
         advance(p);
+        p->depth--;
         return v;
     }
     v->as.array = array_create(DEFAULT_ARRAY_CAPACITY);
@@ -480,13 +481,14 @@ static simson_value_t* parse_array(parser_t* p) {
             simson_value_destroy(v);
             return NULL;
         }
-        
     }
     c = peek(p);
     if (c == ']') {
         advance(p);
+        p->depth--;
         return v;
     }
+    simson_value_destroy(v);
     return NULL;
 }
 
@@ -505,7 +507,13 @@ static simson_member_t* parse_member(parser_t* p) {
         text_destroy(t);
         return NULL;
     }
-    return member_create(t, v);
+    simson_member_t* m = member_create(t, v);
+    if (!m) {
+        text_destroy(t);
+        simson_value_destroy(v);
+        return NULL;
+    }
+    return m;
 }
 
 static simson_value_t* parse_object(parser_t* p) {
@@ -516,6 +524,7 @@ static simson_value_t* parse_object(parser_t* p) {
     u8 c = peek(p);
     if (c == '}') {
         advance(p);
+        p->depth--;
         return v;
     }
     v->as.object = object_create(DEFAULT_OBJECT_CAPACITY);
@@ -524,13 +533,15 @@ static simson_value_t* parse_object(parser_t* p) {
         return NULL;
     }
     simson_member_t* m = parse_member(p);
-    if (!m) return NULL;
+    if (!m) {
+        simson_value_destroy(v);
+        return NULL;
+    }
     if (object_append(v->as.object, m)) {
         member_destroy(m);
         simson_value_destroy(v);
         return NULL;
     }
-    p->depth++;
     while (1) {
         skip_ws(p);
         c = peek(p);
@@ -550,8 +561,10 @@ static simson_value_t* parse_object(parser_t* p) {
     c = peek(p);
     if (c == '}') {
         advance(p);
+        p->depth--;
         return v;
     }
+    simson_value_destroy(v);
     return NULL;
 }
 
@@ -559,8 +572,14 @@ static simson_value_t* parse_value(parser_t* p) {
     skip_ws(p);
     u8 c = peek(p);
     switch (c) {
-    case '{': return parse_object(p);
-    case '[': return parse_array(p);
+    case '{': {
+        p->depth++;
+        return parse_object(p);
+    }
+    case '[': {
+        p->depth++;
+        return parse_array(p);
+    }
     case '"': return parse_string(p);
     case 't': return parse_literal(p, "true", 4);
     case 'f': return parse_literal(p, "false", 5);
@@ -579,6 +598,7 @@ simson_value_t* simson_value_parse(const u8* buffer, size_t len) {
     parser_t parser; parser_init(&parser, buffer, len);
     simson_value_t* result = parse_value(&parser);
     if (!result) return NULL;
+    skip_ws(&parser);
     if (!at_end(&parser)) {
         simson_value_destroy(result);
         return NULL;

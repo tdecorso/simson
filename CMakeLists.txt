@@ -6,8 +6,8 @@ set(SRCS src/simson.c)
 
 include_directories(include)
 
-add_executable(test_simson tests/test_simson.c ${SRCS})
+add_executable(test_parsing tests/test_parsing.c ${SRCS})
 
 enable_testing()
 
-add_test(test_simson test_simson)
+add_test(test_parsing test_parsing)
