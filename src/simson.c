@@ -286,6 +286,13 @@ static u32 parse_hex(parser_t* p) {
     return cp;
 }
 
+static bool is_alpha(u8 c) {
+    return (c >= 'a' && c <= 'z') || 
+           (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') ||
+            c == '_';
+}
+
 static simson_text_t* parse_text(parser_t* p) {
     const u8* start = p->cur;
     advance(p);
@@ -329,7 +336,8 @@ static simson_text_t* parse_text(parser_t* p) {
         }
         return NULL;
     }
-
+    u8 c = peek(p);
+    if (is_alpha(c)) return NULL;
     size_t required = (size_t) (p->cur - start);
     return text_create((const char*)start, required);
 }
@@ -383,6 +391,7 @@ static simson_value_t* parse_number(parser_t* p) {
         advance(p);
         while (1) {
             c = peek(p);
+            if (c == '\0' && at_end(p)) break;
             if (!is_digit(c)) break;
             advance(p);
         }
@@ -457,6 +466,7 @@ static simson_value_t* parse_array(parser_t* p) {
     }
     p->depth++;
     while (1) {
+        skip_ws(p);
         c = peek(p);
         if (c != ',') break;
         advance(p);
@@ -470,6 +480,7 @@ static simson_value_t* parse_array(parser_t* p) {
             simson_value_destroy(v);
             return NULL;
         }
+        
     }
     c = peek(p);
     if (c == ']') {
@@ -480,6 +491,7 @@ static simson_value_t* parse_array(parser_t* p) {
 }
 
 static simson_member_t* parse_member(parser_t* p) {
+    skip_ws(p);
     simson_text_t* t = parse_text(p);
     if (!t) return NULL;
     u8 c = peek(p);
@@ -520,6 +532,7 @@ static simson_value_t* parse_object(parser_t* p) {
     }
     p->depth++;
     while (1) {
+        skip_ws(p);
         c = peek(p);
         if (c != ',') break;
         advance(p);
@@ -564,5 +577,11 @@ static simson_value_t* parse_value(parser_t* p) {
 simson_value_t* simson_value_parse(const u8* buffer, size_t len) {
     if (!buffer || len == 0) return NULL;
     parser_t parser; parser_init(&parser, buffer, len);
-    return parse_value(&parser);
+    simson_value_t* result = parse_value(&parser);
+    if (!result) return NULL;
+    if (!at_end(&parser)) {
+        simson_value_destroy(result);
+        return NULL;
+    }
+    return result;
 }
