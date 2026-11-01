@@ -56,6 +56,19 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure
 
+  fuzz:
+    name: libFuzzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build fuzzer
+        run: >
+          clang -std=c99 -Wall -Wextra -Wpedantic -Werror -fsanitize=fuzzer
+          -fno-omit-frame-pointer -g -Iinclude fuzz/fuzz_parser.c src/simson.c
+          -o fuzz_parser
+      - name: Run fuzzer
+        run: ./fuzz_parser -runs=1000 -max_len=4096 tests/data
+
   install-consumer:
     name: Install + find_package
     runs-on: ubuntu-latest

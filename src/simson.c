@@ -657,7 +657,7 @@ static simson_value_t* parse_number(parser_t* p) {
     if (c == '0') {
         advance(p);
         c = peek(p);
-        if (is_digit1_9(c)) return NULL;
+        if (is_digit(c)) return NULL;
     }
     else if (is_digit1_9(c)) {
         advance(p);
