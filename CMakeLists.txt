@@ -96,3 +96,10 @@ install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/simsonConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/simsonConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/simson)
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/simson.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/simson.pc
+    @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/simson.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
