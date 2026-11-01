@@ -52,6 +52,8 @@ struct simson_value {
 simson_value_t* simson_value_create(simson_type_t type);
 void simson_value_destroy(simson_value_t* v);
 
-simson_value_t* simson_value_parse(const uint8_t* buffer, size_t len);
+simson_value_t* simson_value_parse(const char* buffer, size_t len);
+
+int simson_value_serialize(simson_value_t* v, bool pretty, char** buffer, size_t* len);
 
 #endif // H_simson

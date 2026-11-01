@@ -1,10 +1,13 @@
 #include "simson.h"
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define MAX_DEPTH 500
 #define DEFAULT_ARRAY_CAPACITY 4
 #define DEFAULT_OBJECT_CAPACITY 4
+#define DEFAULT_TB_CAPACITY 32
 
 typedef uint8_t u8;
 typedef uint32_t u32;
@@ -20,12 +23,12 @@ typedef struct parser {
 static simson_text_t* text_create(const char* text, size_t len) {
     simson_text_t* t = malloc(sizeof(simson_text_t));
     if (!t) return NULL;
-    t->data = malloc(len);
+    t->data = malloc(len > 0 ? len : 1);
     if (!t->data) {
         free(t);
         return NULL;
     }
-    memcpy(t->data, text, len);
+    if (len > 0) memcpy(t->data, text, len);
     t->len = len;
     return t;
 }
@@ -287,15 +290,15 @@ static u32 parse_hex(parser_t* p) {
 }
 
 static bool is_alpha(u8 c) {
-    return (c >= 'a' && c <= 'z') || 
+    return (c >= 'a' && c <= 'z') ||
            (c >= 'A' && c <= 'Z') ||
            (c >= '0' && c <= '9') ||
             c == '_';
 }
 
 static simson_text_t* parse_text(parser_t* p) {
-    const u8* start = p->cur;
     advance(p);
+    const u8* start = p->cur;
 
     while (1) {
         u32 cp = 0; size_t cp_len = 0;
@@ -338,7 +341,7 @@ static simson_text_t* parse_text(parser_t* p) {
     }
     u8 c = peek(p);
     if (is_alpha(c)) return NULL;
-    size_t required = (size_t) (p->cur - start);
+    size_t required = (size_t) (p->cur - start) - 1;
     return text_create((const char*)start, required);
 }
 
@@ -360,10 +363,10 @@ static simson_value_t* parse_literal(parser_t* p, const char* pattern, size_t le
         if (c != pattern[i]) return NULL;
         advance(p);
     }
-    simson_value_t* v = simson_value_create(SIMSON_BOOL);
+    simson_type_t type = pattern[0] == 'n' ? SIMSON_NULL : SIMSON_BOOL;
+    simson_value_t* v = simson_value_create(type);
     if (!v) return NULL;
-    if (pattern[0] == 'n') return v;
-    v->as.boolean = len == 4;
+    if (type == SIMSON_BOOL) v->as.boolean = len == 4;
     return v;
 }
 
@@ -444,6 +447,7 @@ static simson_value_t* parse_array(parser_t* p) {
     simson_value_t* v = simson_value_create(SIMSON_ARRAY);
     if (!v) return NULL;
     advance(p);
+    skip_ws(p);
     u8 c = peek(p);
     if (c == ']') {
         advance(p);
@@ -521,6 +525,7 @@ static simson_value_t* parse_object(parser_t* p) {
     simson_value_t* v = simson_value_create(SIMSON_OBJECT);
     if (!v) return NULL;
     advance(p);
+    skip_ws(p);
     u8 c = peek(p);
     if (c == '}') {
         advance(p);
@@ -593,9 +598,9 @@ static simson_value_t* parse_value(parser_t* p) {
     return NULL;
 }
 
-simson_value_t* simson_value_parse(const u8* buffer, size_t len) {
+simson_value_t* simson_value_parse(const char* buffer, size_t len) {
     if (!buffer || len == 0) return NULL;
-    parser_t parser; parser_init(&parser, buffer, len);
+    parser_t parser; parser_init(&parser, (const u8*) buffer, len);
     simson_value_t* result = parse_value(&parser);
     if (!result) return NULL;
     skip_ws(&parser);
@@ -604,4 +609,183 @@ simson_value_t* simson_value_parse(const u8* buffer, size_t len) {
         return NULL;
     }
     return result;
+}
+
+typedef struct text_buffer {
+    char* data;
+    size_t len;
+    size_t cap;
+} text_buffer_t;
+
+static text_buffer_t* text_buffer_create(size_t cap) {
+    text_buffer_t* tb = malloc(sizeof(text_buffer_t));
+    if (!tb) return NULL;
+    tb->data = malloc(cap);
+    if (!tb->data) {
+        free(tb);
+        return NULL;
+    }
+    tb->data[0] = '\0';
+    tb->len = 0;
+    tb->cap = cap;
+    return tb;
+}
+
+static int text_buffer_reserve(text_buffer_t* tb, size_t extra) {
+    if (extra > SIZE_MAX - tb->len - 1) return 1;
+    size_t needed = tb->len + extra + 1;
+    if (needed <= tb->cap) return 0;
+    size_t ncap = tb->cap;
+    while (ncap < needed) {
+        if (ncap > SIZE_MAX / 2) {
+            ncap = needed;
+            break;
+        }
+        ncap *= 2;
+    }
+    char* data = realloc(tb->data, ncap);
+    if (!data) return 1;
+    tb->data = data;
+    tb->cap = ncap;
+    return 0;
+}
+
+static int text_buffer_append(text_buffer_t* tb, const char* text, size_t len) {
+    if (text_buffer_reserve(tb, len)) return 1;
+    if (len > 0) memcpy(tb->data + tb->len, text, len);
+    tb->len += len;
+    tb->data[tb->len] = '\0';
+    return 0;
+}
+
+static void text_buffer_destroy(text_buffer_t* tb) {
+    if (!tb) return;
+    free(tb->data);
+    free(tb);
+}
+
+static int text_buffer_indent(text_buffer_t* tb, size_t depth) {
+    static const char spaces[] = "                                ";
+    size_t count = depth * 2;
+    while (count > 0) {
+        size_t chunk = count < sizeof(spaces) - 1 ? count : sizeof(spaces) - 1;
+        if (text_buffer_append(tb, spaces, chunk)) return 1;
+        count -= chunk;
+    }
+    return 0;
+}
+
+static int serialize_number(double number, text_buffer_t* tb) {
+    if (!isfinite(number)) return 1;
+    char candidate[64];
+    char best[64];
+    size_t best_len = 0;
+    for (int precision = 1; precision <= 17; precision++) {
+        int n = snprintf(candidate, sizeof(candidate), "%.*g", precision, number);
+        if (n < 0 || (size_t) n >= sizeof(candidate)) return 1;
+        char* end = NULL;
+        double parsed = strtod(candidate, &end);
+        if (end && *end == '\0' && parsed == number && signbit(parsed) == signbit(number)) {
+            if (best_len == 0 || (size_t) n < best_len) {
+                memcpy(best, candidate, (size_t) n);
+                best_len = (size_t) n;
+            }
+        }
+    }
+    if (best_len == 0) {
+        int n = snprintf(best, sizeof(best), "%.17g", number);
+        if (n < 0 || (size_t) n >= sizeof(best)) return 1;
+        best_len = (size_t) n;
+    }
+    return text_buffer_append(tb, best, best_len);
+}
+
+static int serialize_text(const simson_text_t* text, text_buffer_t* tb) {
+    if (text_buffer_append(tb, "\"", 1)) return 1;
+    if (text && text->data && text->len > 0) {
+        if (text_buffer_append(tb, text->data, text->len)) return 1;
+    }
+    return text_buffer_append(tb, "\"", 1);
+}
+
+static int serialize_value(const simson_value_t* v, bool pretty, size_t depth, text_buffer_t* tb);
+
+static int serialize_array(const simson_array_t* arr, bool pretty, size_t depth, text_buffer_t* tb) {
+    if (text_buffer_append(tb, "[", 1)) return 1;
+    if (!arr || arr->len == 0) return text_buffer_append(tb, "]", 1);
+    for (size_t i = 0; i < arr->len; i++) {
+        if (i > 0 && text_buffer_append(tb, ",", 1)) return 1;
+        if (pretty) {
+            if (text_buffer_append(tb, "\n", 1)) return 1;
+            if (text_buffer_indent(tb, depth + 1)) return 1;
+        }
+        if (serialize_value(arr->data[i], pretty, depth + 1, tb)) return 1;
+    }
+    if (pretty) {
+        if (text_buffer_append(tb, "\n", 1)) return 1;
+        if (text_buffer_indent(tb, depth)) return 1;
+    }
+    return text_buffer_append(tb, "]", 1);
+}
+
+static int serialize_object(const simson_object_t* obj, bool pretty, size_t depth, text_buffer_t* tb) {
+    if (text_buffer_append(tb, "{", 1)) return 1;
+    if (!obj || obj->len == 0) return text_buffer_append(tb, "}", 1);
+    for (size_t i = 0; i < obj->len; i++) {
+        if (i > 0 && text_buffer_append(tb, ",", 1)) return 1;
+        if (pretty) {
+            if (text_buffer_append(tb, "\n", 1)) return 1;
+            if (text_buffer_indent(tb, depth + 1)) return 1;
+        }
+        const simson_member_t* m = obj->data[i];
+        if (!m) return 1;
+        if (serialize_text(m->key, tb)) return 1;
+        if (pretty) {
+            if (text_buffer_append(tb, ": ", 2)) return 1;
+        } else if (text_buffer_append(tb, ":", 1)) {
+            return 1;
+        }
+        if (serialize_value(m->value, pretty, depth + 1, tb)) return 1;
+    }
+    if (pretty) {
+        if (text_buffer_append(tb, "\n", 1)) return 1;
+        if (text_buffer_indent(tb, depth)) return 1;
+    }
+    return text_buffer_append(tb, "}", 1);
+}
+
+static int serialize_value(const simson_value_t* v, bool pretty, size_t depth, text_buffer_t* tb) {
+    if (!v || depth > MAX_DEPTH) return 1;
+    switch (v->type) {
+    case SIMSON_NULL:
+        return text_buffer_append(tb, "null", 4);
+    case SIMSON_BOOL:
+        return text_buffer_append(tb, v->as.boolean ? "true" : "false", v->as.boolean ? 4 : 5);
+    case SIMSON_NUMBER:
+        return serialize_number(v->as.number, tb);
+    case SIMSON_STRING:
+        return serialize_text(v->as.string, tb);
+    case SIMSON_ARRAY:
+        return serialize_array(v->as.array, pretty, depth, tb);
+    case SIMSON_OBJECT:
+        return serialize_object(v->as.object, pretty, depth, tb);
+    default:
+        return 1;
+    }
+}
+
+int simson_value_serialize(simson_value_t* v, bool pretty, char** buffer, size_t* len) {
+    if (!v || !buffer || !len) return 1;
+    *buffer = NULL;
+    *len = 0;
+    text_buffer_t* tb = text_buffer_create(DEFAULT_TB_CAPACITY);
+    if (!tb) return 1;
+    if (serialize_value(v, pretty, 0, tb)) {
+        text_buffer_destroy(tb);
+        return 1;
+    }
+    *buffer = tb->data;
+    *len = tb->len;
+    free(tb);
+    return 0;
 }
