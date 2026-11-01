@@ -1,4 +1,5 @@
 #include "simson.h"
+#include <locale.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -609,6 +610,41 @@ static bool is_digit1_9(u8 c) {
     return c >= '1' && c <= '9';
 }
 
+static double parse_double(const char* text) {
+    const char* decimal = localeconv()->decimal_point;
+    if (!decimal || strcmp(decimal, ".") == 0) return strtod(text, NULL);
+    size_t decimal_len = strlen(decimal);
+    const char* dot = strchr(text, '.');
+    if (!dot || decimal_len == 0) return strtod(text, NULL);
+    size_t len = strlen(text);
+    size_t extra = decimal_len > 1 ? decimal_len - 1 : 0;
+    if (extra > SIZE_MAX - len - 1) return strtod(text, NULL);
+    char* normalized = malloc(len + extra + 1);
+    if (!normalized) return strtod(text, NULL);
+    size_t prefix = (size_t) (dot - text);
+    memcpy(normalized, text, prefix);
+    memcpy(normalized + prefix, decimal, decimal_len);
+    size_t suffix_len = len - prefix - 1;
+    memcpy(normalized + prefix + decimal_len, dot + 1, suffix_len + 1);
+    double result = strtod(normalized, NULL);
+    free(normalized);
+    return result;
+}
+
+static int format_double(char* buffer, size_t cap, int precision, double number) {
+    int len = snprintf(buffer, cap, "%.*g", precision, number);
+    if (len < 0 || (size_t) len >= cap) return -1;
+    const char* decimal = localeconv()->decimal_point;
+    if (!decimal || decimal[0] == '\0' || strcmp(decimal, ".") == 0) return len;
+    char* dot = strstr(buffer, decimal);
+    if (!dot) return len;
+    size_t decimal_len = strlen(decimal);
+    size_t suffix_len = strlen(dot + decimal_len);
+    if (decimal_len > 1) memmove(dot + 1, dot + decimal_len, suffix_len + 1);
+    *dot = '.';
+    return len - (int) (decimal_len - 1);
+}
+
 static simson_value_t* parse_number(parser_t* p) {
     const u8* start = p->cur;
     u8 c = peek(p);
@@ -661,13 +697,12 @@ static simson_value_t* parse_number(parser_t* p) {
     if (!buffer) return NULL;
     memcpy(buffer, start, len);
     buffer[len] = '\0';
-    simson_value_t* v = simson_value_create(SIMSON_NUMBER);
-    if (!v) {
-        free(buffer);
-        return NULL;
-    }
-    v->as.number = strtod(buffer, NULL);
+    double number = parse_double(buffer);
     free(buffer);
+    if (!isfinite(number)) return NULL;
+    simson_value_t* v = simson_value_create(SIMSON_NUMBER);
+    if (!v) return NULL;
+    v->as.number = number;
     return v;
 }
 
@@ -912,11 +947,10 @@ static int serialize_number(double number, text_buffer_t* tb) {
     char best[64];
     size_t best_len = 0;
     for (int precision = 1; precision <= 17; precision++) {
-        int n = snprintf(candidate, sizeof(candidate), "%.*g", precision, number);
-        if (n < 0 || (size_t) n >= sizeof(candidate)) return 1;
-        char* end = NULL;
-        double parsed = strtod(candidate, &end);
-        if (end && *end == '\0' && parsed == number && signbit(parsed) == signbit(number)) {
+        int n = format_double(candidate, sizeof(candidate), precision, number);
+        if (n < 0) return 1;
+        double parsed = parse_double(candidate);
+        if (parsed == number && signbit(parsed) == signbit(number)) {
             if (best_len == 0 || (size_t) n < best_len) {
                 memcpy(best, candidate, (size_t) n);
                 best_len = (size_t) n;
@@ -924,8 +958,8 @@ static int serialize_number(double number, text_buffer_t* tb) {
         }
     }
     if (best_len == 0) {
-        int n = snprintf(best, sizeof(best), "%.17g", number);
-        if (n < 0 || (size_t) n >= sizeof(best)) return 1;
+        int n = format_double(best, sizeof(best), 17, number);
+        if (n < 0) return 1;
         best_len = (size_t) n;
     }
     return text_buffer_append(tb, best, best_len);

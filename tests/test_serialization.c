@@ -1,3 +1,4 @@
+#include <locale.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,6 +103,73 @@ static void expect_error(const char* label, simson_value_t* v) {
     free(buffer);
 }
 
+static void expect_parse_failure(const char* label, const char* input) {
+    simson_value_t* v = parse(input);
+    if (v) {
+        printf("FAIL %s: expected parse failure\n", label);
+        failures++;
+        simson_value_destroy(v);
+    }
+}
+
+static void expect_locale_numbers(void) {
+    const char* original = setlocale(LC_NUMERIC, NULL);
+    char saved[128];
+    saved[0] = '\0';
+    if (original) {
+        strncpy(saved, original, sizeof(saved) - 1);
+        saved[sizeof(saved) - 1] = '\0';
+    }
+
+    static const char* candidates[] = {
+        "de_DE.UTF-8", "de_DE.utf8", "de_DE",
+        "fr_FR.UTF-8", "fr_FR.utf8", "fr_FR",
+        "es_ES.UTF-8", "es_ES.utf8", "es_ES",
+        "it_IT.UTF-8", "it_IT.utf8", "it_IT",
+        NULL
+    };
+
+    bool tested = false;
+    for (size_t i = 0; candidates[i]; i++) {
+        if (!setlocale(LC_NUMERIC, candidates[i])) continue;
+        const char* decimal = localeconv()->decimal_point;
+        if (!decimal || strcmp(decimal, ".") == 0) continue;
+
+        simson_value_t* v = parse("1.5");
+        if (!v) {
+            printf("FAIL locale %s: parse failed\n", candidates[i]);
+            failures++;
+        } else {
+            double number = 0;
+            if (simson_value_get_number(v, &number) != 0 || number != 1.5) {
+                printf("FAIL locale %s: parsed number is not 1.5\n", candidates[i]);
+                failures++;
+            }
+            simson_value_destroy(v);
+        }
+
+        v = simson_value_number(1.5);
+        char* buffer = NULL;
+        size_t len = 0;
+        if (!v || simson_value_serialize(v, false, &buffer, &len) != 0) {
+            printf("FAIL locale %s: serialize failed\n", candidates[i]);
+            failures++;
+        } else if (strcmp(buffer, "1.5") != 0) {
+            printf("FAIL locale %s: serialized %s instead of 1.5\n", candidates[i], buffer);
+            failures++;
+        }
+        free(buffer);
+        simson_value_destroy(v);
+        tested = true;
+        break;
+    }
+
+    setlocale(LC_NUMERIC, saved[0] ? saved : "C");
+    if (!tested) {
+        printf("SKIP locale number test: no comma-decimal locale available\n");
+    }
+}
+
 int main(void) {
     expect_serialize("null", "null", false, "null");
     expect_serialize("true", "true", false, "true");
@@ -136,6 +204,10 @@ int main(void) {
     expect_roundtrip("round-trip big exponent", "123e65", false);
     expect_roundtrip("round-trip small exponent", "-1e-78", false);
     expect_roundtrip("round-trip pretty", "{\"a\":[1,{\"b\":2}]}", true);
+
+    expect_parse_failure("overflow number", "1e999");
+    expect_parse_failure("negative overflow number", "-1e999");
+    expect_locale_numbers();
 
     expect_error("null value", NULL);
     simson_value_t* number = simson_value_create(SIMSON_NUMBER);

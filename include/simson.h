@@ -28,6 +28,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define SIMSON_VERSION_MAJOR 0
+#define SIMSON_VERSION_MINOR 1
+#define SIMSON_VERSION_PATCH 0
+#define SIMSON_VERSION "0.1.0"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * The JSON value types.
  */
@@ -235,8 +244,9 @@ simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t 
  * Parse a JSON document from `len` bytes at `buffer`.
  *
  * The buffer does not need to be NUL-terminated. Leading and trailing JSON
- * whitespace is allowed. Returns an owned value, or NULL if the input is
- * invalid or has trailing non-whitespace content.
+ * whitespace is allowed. Numbers must be representable as finite doubles.
+ * Returns an owned value, or NULL if the input is invalid or has trailing
+ * non-whitespace content.
  */
 simson_value_t* simson_value_parse(const char* buffer, size_t len);
 
@@ -254,5 +264,9 @@ simson_value_t* simson_value_parse(const char* buffer, size_t len);
  * string values must contain valid escaped content.
  */
 int simson_value_serialize(simson_value_t* v, bool pretty, char** buffer, size_t* len);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* SIMSON_H */
