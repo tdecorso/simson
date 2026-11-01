@@ -142,6 +142,13 @@ ensure a consistent locale across threads.
 - Object keys are compared as raw JSON text, so `"a"` and `"\u0061"` are
   distinct keys.
 
+## ABI policy
+
+The public value, text, member, array, and object structs are part of the public
+ABI. Callers should prefer the typed constructors and accessors, but direct
+field access remains supported for 0.1.x. Changes to struct layout will be
+reserved for a 1.0.0 ABI break and documented in the changelog.
+
 ## Version
 
 The current version is `0.1.0`.
