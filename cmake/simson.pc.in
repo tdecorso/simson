@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: simson
+Description: Small C JSON parser and serializer
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lsimson
+Cflags: -I${includedir}
