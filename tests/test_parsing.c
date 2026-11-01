@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "simson.h"
 
@@ -28,7 +29,8 @@ int parse_y_file(const char* filename) {
     size_t len = 0;
     char* stream = read_file(filename, &len);
     if (!stream) return 1;
-    simson_value_t* v = simson_value_parse(stream, len);
+    simson_error_t error;
+    simson_value_t* v = simson_value_parse(stream, len, &error);
     free(stream);
     if (!v) return 1;
     simson_value_destroy(v);
@@ -39,10 +41,41 @@ int parse_n_file(const char* filename) {
     size_t len = 0;
     char* stream = read_file(filename, &len);
     if (!stream) return 1;
-    simson_value_t* v = simson_value_parse(stream, len);
+    simson_error_t error;
+    simson_value_t* v = simson_value_parse(stream, len, &error);
     free(stream);
     if (v) {
         simson_value_destroy(v);
+        return 1;
+    }
+    return 0;
+}
+
+static int expect_parse_error(const char* input, size_t expected_offset, size_t expected_line, size_t expected_column) {
+    simson_error_t error;
+    simson_value_t* v = simson_value_parse(input, strlen(input), &error);
+    if (v) {
+        printf("FAIL %s: expected parse failure\n", input);
+        return 1;
+    }
+    if (error.code != SIMSON_ERR_INVALID_JSON) {
+        printf("FAIL %s: expected invalid JSON error\n", input);
+        return 1;
+    }
+    if (error.offset != expected_offset) {
+        printf("FAIL %s: expected offset %zu, got %zu\n", input, expected_offset, error.offset);
+        return 1;
+    }
+    if (error.line != expected_line) {
+        printf("FAIL %s: expected line %zu, got %zu\n", input, expected_line, error.line);
+        return 1;
+    }
+    if (error.column != expected_column) {
+        printf("FAIL %s: expected column %zu, got %zu\n", input, expected_column, error.column);
+        return 1;
+    }
+    if (error.message == NULL || strcmp(error.message, "invalid JSON") != 0) {
+        printf("FAIL %s: expected invalid JSON message\n", input);
         return 1;
     }
     return 0;
@@ -354,7 +387,11 @@ int main(void) {
         TEST_Y_FILE(y_files[i]);
     }
     for (size_t i = 0; i < sizeof(n_files) / (sizeof(char*)); i++) {
-         TEST_N_FILE(n_files[i]);
+        TEST_N_FILE(n_files[i]);
     }
+    if (expect_parse_error("", 0, 1, 0)) return 1;
+    if (expect_parse_error("{\"a\":", 5, 1, 4)) return 1;
+    if (expect_parse_error("{}x", 2, 1, 2)) return 1;
+    if (expect_parse_error("01", 1, 1, 1)) return 1;
     return 0;
 }

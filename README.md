@@ -76,7 +76,8 @@ cmake --build consumer-build
 int main(void) {
     const char* input = "{\"name\":\"simson\",\"tags\":[\"json\",\"c\"]}";
 
-    simson_value_t* root = simson_value_parse(input, strlen(input));
+    simson_error_t error;
+    simson_value_t* root = simson_value_parse(input, strlen(input), &error);
     if (!root) return 1;
 
     simson_value_t* tags = NULL;
@@ -128,8 +129,9 @@ content. Invalid raw text will produce invalid JSON.
   representable as finite doubles.
 - Parsing accepts duplicate object keys because the input may contain them.
   The mutation API treats keys as unique and replaces the first match.
-- Errors are reported as `NULL` or a non-zero return code; there are no error
-  positions or codes.
+- Parse failures return `NULL` and populate `simson_error_t` with an error code,
+  byte offset, line, and column. Serialize failures return a non-zero code and
+  do not populate an error.
 - Object keys are compared as raw JSON text, so `"a"` and `"\u0061"` are
   distinct keys.
 

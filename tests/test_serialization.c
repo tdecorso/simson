@@ -9,7 +9,8 @@
 static int failures = 0;
 
 static simson_value_t* parse(const char* input) {
-    return simson_value_parse(input, strlen(input));
+    simson_error_t error;
+    return simson_value_parse(input, strlen(input), &error);
 }
 
 static void expect_serialize(const char* label, const char* input, bool pretty, const char* expected) {
@@ -61,7 +62,8 @@ static void expect_roundtrip(const char* label, const char* input, bool pretty) 
         simson_value_destroy(v);
         return;
     }
-    simson_value_t* v2 = simson_value_parse(out1, len1);
+    simson_error_t error;
+    simson_value_t* v2 = simson_value_parse(out1, len1, &error);
     if (!v2) {
         printf("FAIL %s: reparse failed for: %s\n", label, out1);
         failures++;

@@ -16,6 +16,7 @@ typedef uint32_t u32;
 typedef struct parser {
     const u8* cur;
     const u8* end;
+    const u8* start;
     size_t line;
     size_t col;
     size_t depth;
@@ -412,6 +413,7 @@ simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t 
 static void parser_init(parser_t* p, const u8* buffer, size_t len) {
     p->cur = buffer;
     p->end = buffer + len;
+    p->start = buffer;
     p->line = 1;
     p->col = 0;
     p->depth = 0;
@@ -655,7 +657,7 @@ static simson_value_t* parse_number(parser_t* p) {
     if (c == '0') {
         advance(p);
         c = peek(p);
-        if (is_digit1_9(c)) return NULL;
+        if (is_digit(c)) return NULL;
     }
     else if (is_digit1_9(c)) {
         advance(p);
@@ -864,16 +866,49 @@ static simson_value_t* parse_value(parser_t* p) {
     return NULL;
 }
 
-simson_value_t* simson_value_parse(const char* buffer, size_t len) {
-    if (!buffer || len == 0) return NULL;
+simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_t* error) {
+    if (error) {
+        error->code = SIMSON_OK;
+        error->offset = 0;
+        error->line = 1;
+        error->column = 0;
+        error->message = NULL;
+    }
+    if (!buffer || len == 0) {
+        if (error) {
+            error->code = SIMSON_ERR_INVALID_JSON;
+            error->offset = 0;
+            error->line = 1;
+            error->column = 0;
+            error->message = "invalid JSON";
+        }
+        return NULL;
+    }
     parser_t parser; parser_init(&parser, (const u8*) buffer, len);
     simson_value_t* result = parse_value(&parser);
-    if (!result) return NULL;
+    if (!result) {
+        if (error) {
+            error->code = SIMSON_ERR_INVALID_JSON;
+            error->offset = (size_t) (parser.cur - parser.start);
+            error->line = parser.line;
+            error->column = parser.col;
+            error->message = "invalid JSON";
+        }
+        return NULL;
+    }
     skip_ws(&parser);
     if (!at_end(&parser)) {
+        if (error) {
+            error->code = SIMSON_ERR_INVALID_JSON;
+            error->offset = (size_t) (parser.cur - parser.start);
+            error->line = parser.line;
+            error->column = parser.col;
+            error->message = "invalid JSON";
+        }
         simson_value_destroy(result);
         return NULL;
     }
+    if (error) error->code = SIMSON_OK;
     return result;
 }
 
