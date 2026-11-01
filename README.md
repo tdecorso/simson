@@ -151,7 +151,7 @@ reserved for a 1.0.0 ABI break and documented in the changelog.
 
 ## Version
 
-The current version is `0.1.0`.
+The current version is `1.0.0`.
 
 ## License
 

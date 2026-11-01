@@ -28,10 +28,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SIMSON_VERSION_MAJOR 0
-#define SIMSON_VERSION_MINOR 1
+#define SIMSON_VERSION_MAJOR 1
+#define SIMSON_VERSION_MINOR 0
 #define SIMSON_VERSION_PATCH 0
-#define SIMSON_VERSION "0.1.0"
+#define SIMSON_VERSION "1.0.0"
 
 
 #if defined(_WIN32) || defined(__CYGWIN__)
