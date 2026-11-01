@@ -67,14 +67,26 @@ static simson_array_t* array_create(size_t capacity) {
     return a;
 }
 
-static int array_append(simson_array_t* a, simson_value_t* v) {
-    if (a->len == a->cap) {
-        size_t ncap = a->cap * 2;
-        simson_value_t** nvalues = realloc(a->data, ncap * sizeof(simson_value_t*));
-        if (!nvalues) return 1;
-        a->data = nvalues;
-        a->cap = ncap;
+static int array_reserve(simson_array_t* a, size_t needed) {
+    if (needed <= a->cap) return 0;
+    if (needed > SIZE_MAX / sizeof(simson_value_t*)) return 1;
+    size_t ncap = a->cap ? a->cap : DEFAULT_ARRAY_CAPACITY;
+    while (ncap < needed) {
+        if (ncap > SIZE_MAX / 2) {
+            ncap = needed;
+            break;
+        }
+        ncap *= 2;
     }
+    simson_value_t** nvalues = realloc(a->data, ncap * sizeof(simson_value_t*));
+    if (!nvalues) return 1;
+    a->data = nvalues;
+    a->cap = ncap;
+    return 0;
+}
+
+static int array_append(simson_array_t* a, simson_value_t* v) {
+    if (array_reserve(a, a->len + 1)) return 1;
     a->data[a->len] = v;
     a->len++;
     return 0;
@@ -102,14 +114,26 @@ static simson_object_t* object_create(size_t capacity) {
     return o;
 }
 
-static int object_append(simson_object_t* o, simson_member_t* m) {
-    if (o->len == o->cap) {
-        size_t ncap = o->cap * 2;
-        simson_member_t** nmembers = realloc(o->data, ncap * sizeof(simson_member_t*));
-        if (!nmembers) return 1;
-        o->data = nmembers;
-        o->cap = ncap;
+static int object_reserve(simson_object_t* o, size_t needed) {
+    if (needed <= o->cap) return 0;
+    if (needed > SIZE_MAX / sizeof(simson_member_t*)) return 1;
+    size_t ncap = o->cap ? o->cap : DEFAULT_OBJECT_CAPACITY;
+    while (ncap < needed) {
+        if (ncap > SIZE_MAX / 2) {
+            ncap = needed;
+            break;
+        }
+        ncap *= 2;
     }
+    simson_member_t** nmembers = realloc(o->data, ncap * sizeof(simson_member_t*));
+    if (!nmembers) return 1;
+    o->data = nmembers;
+    o->cap = ncap;
+    return 0;
+}
+
+static int object_append(simson_object_t* o, simson_member_t* m) {
+    if (object_reserve(o, o->len + 1)) return 1;
     o->data[o->len] = m;
     o->len++;
     return 0;
@@ -175,7 +199,214 @@ void simson_value_destroy(simson_value_t* v) {
     free(v);
 }
 
+simson_value_t* simson_value_null(void) {
+    return simson_value_create(SIMSON_NULL);
+}
 
+simson_value_t* simson_value_bool(bool value) {
+    simson_value_t* v = simson_value_create(SIMSON_BOOL);
+    if (v) v->as.boolean = value;
+    return v;
+}
+
+simson_value_t* simson_value_number(double value) {
+    simson_value_t* v = simson_value_create(SIMSON_NUMBER);
+    if (v) v->as.number = value;
+    return v;
+}
+
+simson_value_t* simson_value_string(const char* text, size_t len) {
+    if (!text && len > 0) return NULL;
+    simson_value_t* v = simson_value_create(SIMSON_STRING);
+    if (!v) return NULL;
+    v->as.string = text_create(text ? text : "", len);
+    if (!v->as.string) {
+        simson_value_destroy(v);
+        return NULL;
+    }
+    return v;
+}
+
+simson_value_t* simson_value_array(void) {
+    return simson_value_create(SIMSON_ARRAY);
+}
+
+simson_value_t* simson_value_object(void) {
+    return simson_value_create(SIMSON_OBJECT);
+}
+
+int simson_value_type(const simson_value_t* v, simson_type_t* out) {
+    if (!v || !out) return 1;
+    *out = v->type;
+    return 0;
+}
+
+int simson_value_get_bool(const simson_value_t* v, bool* out) {
+    if (!v || !out || v->type != SIMSON_BOOL) return 1;
+    *out = v->as.boolean;
+    return 0;
+}
+
+int simson_value_get_number(const simson_value_t* v, double* out) {
+    if (!v || !out || v->type != SIMSON_NUMBER) return 1;
+    *out = v->as.number;
+    return 0;
+}
+
+int simson_value_get_string(const simson_value_t* v, const char** data, size_t* len) {
+    if (!v || !data || !len || v->type != SIMSON_STRING) return 1;
+    if (v->as.string) {
+        *data = v->as.string->data;
+        *len = v->as.string->len;
+    } else {
+        *data = NULL;
+        *len = 0;
+    }
+    return 0;
+}
+
+static int ensure_array(simson_value_t* v) {
+    if (!v || v->type != SIMSON_ARRAY) return 1;
+    if (!v->as.array) {
+        v->as.array = array_create(DEFAULT_ARRAY_CAPACITY);
+        if (!v->as.array) return 1;
+    }
+    return 0;
+}
+
+static int ensure_object(simson_value_t* v) {
+    if (!v || v->type != SIMSON_OBJECT) return 1;
+    if (!v->as.object) {
+        v->as.object = object_create(DEFAULT_OBJECT_CAPACITY);
+        if (!v->as.object) return 1;
+    }
+    return 0;
+}
+
+int simson_array_len(const simson_value_t* v, size_t* len) {
+    if (!v || !len || v->type != SIMSON_ARRAY) return 1;
+    *len = v->as.array ? v->as.array->len : 0;
+    return 0;
+}
+
+int simson_array_get(const simson_value_t* v, size_t index, simson_value_t** out) {
+    if (out) *out = NULL;
+    if (!v || !out || v->type != SIMSON_ARRAY || !v->as.array || index >= v->as.array->len) return 1;
+    *out = v->as.array->data[index];
+    return 0;
+}
+
+int simson_array_append(simson_value_t* v, simson_value_t* value) {
+    if (!value || ensure_array(v)) return 1;
+    return array_append(v->as.array, value);
+}
+
+int simson_array_insert(simson_value_t* v, size_t index, simson_value_t* value) {
+    if (!value || ensure_array(v)) return 1;
+    simson_array_t* a = v->as.array;
+    if (index > a->len) return 1;
+    if (array_reserve(a, a->len + 1)) return 1;
+    memmove(&a->data[index + 1], &a->data[index], (a->len - index) * sizeof(simson_value_t*));
+    a->data[index] = value;
+    a->len++;
+    return 0;
+}
+
+int simson_array_set(simson_value_t* v, size_t index, simson_value_t* value) {
+    if (!value || !v || v->type != SIMSON_ARRAY || !v->as.array || index >= v->as.array->len) return 1;
+    simson_value_t** slot = &v->as.array->data[index];
+    if (*slot == value) return 0;
+    simson_value_destroy(*slot);
+    *slot = value;
+    return 0;
+}
+
+simson_value_t* simson_array_remove(simson_value_t* v, size_t index) {
+    if (!v || v->type != SIMSON_ARRAY || !v->as.array || index >= v->as.array->len) return NULL;
+    simson_array_t* a = v->as.array;
+    simson_value_t* removed = a->data[index];
+    memmove(&a->data[index], &a->data[index + 1], (a->len - index - 1) * sizeof(simson_value_t*));
+    a->len--;
+    return removed;
+}
+
+static int object_find_index(const simson_object_t* o, const char* key, size_t key_len, size_t* index) {
+    for (size_t i = 0; i < o->len; i++) {
+        simson_member_t* m = o->data[i];
+        if (m && m->key && m->key->len == key_len &&
+            (key_len == 0 || memcmp(m->key->data, key, key_len) == 0)) {
+            *index = i;
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int simson_object_len(const simson_value_t* v, size_t* len) {
+    if (!v || !len || v->type != SIMSON_OBJECT) return 1;
+    *len = v->as.object ? v->as.object->len : 0;
+    return 0;
+}
+
+int simson_object_get(const simson_value_t* v, const char* key, size_t key_len, simson_value_t** out) {
+    if (out) *out = NULL;
+    if (!v || !key || !out || v->type != SIMSON_OBJECT || !v->as.object) return 1;
+    size_t index;
+    if (object_find_index(v->as.object, key, key_len, &index)) return 1;
+    *out = v->as.object->data[index]->value;
+    return 0;
+}
+
+int simson_object_key(const simson_value_t* v, size_t index, const char** key, size_t* key_len) {
+    if (key) *key = NULL;
+    if (key_len) *key_len = 0;
+    if (!v || !key || !key_len || v->type != SIMSON_OBJECT || !v->as.object || index >= v->as.object->len) return 1;
+    simson_member_t* m = v->as.object->data[index];
+    if (!m || !m->key) return 1;
+    *key = m->key->data;
+    *key_len = m->key->len;
+    return 0;
+}
+
+int simson_object_set(simson_value_t* v, const char* key, size_t key_len, simson_value_t* value) {
+    if (!key || !value || ensure_object(v)) return 1;
+    simson_object_t* o = v->as.object;
+    size_t index;
+    if (object_find_index(o, key, key_len, &index) == 0) {
+        simson_member_t* m = o->data[index];
+        if (m->value == value) return 0;
+        simson_value_destroy(m->value);
+        m->value = value;
+        return 0;
+    }
+    simson_text_t* t = text_create(key, key_len);
+    if (!t) return 1;
+    simson_member_t* m = member_create(t, value);
+    if (!m) {
+        text_destroy(t);
+        return 1;
+    }
+    if (object_append(o, m)) {
+        free(m);
+        text_destroy(t);
+        return 1;
+    }
+    return 0;
+}
+
+simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t key_len) {
+    if (!v || !key || v->type != SIMSON_OBJECT || !v->as.object) return NULL;
+    size_t index;
+    if (object_find_index(v->as.object, key, key_len, &index)) return NULL;
+    simson_object_t* o = v->as.object;
+    simson_member_t* m = o->data[index];
+    simson_value_t* removed = m->value;
+    memmove(&o->data[index], &o->data[index + 1], (o->len - index - 1) * sizeof(simson_member_t*));
+    o->len--;
+    text_destroy(m->key);
+    free(m);
+    return removed;
+}
 
 static void parser_init(parser_t* p, const u8* buffer, size_t len) {
     p->cur = buffer;
