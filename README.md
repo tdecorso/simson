@@ -123,6 +123,13 @@ simson_value_t* value = simson_value_string("a\\nb", 4);
 The serializer wraps the stored text in quotes, so it does not re-escape
 content. Invalid raw text will produce invalid JSON.
 
+## Thread safety
+
+Locale-dependent number formatting uses the C locale machinery. `simson` does
+not install or restore locales itself; callers that change the global locale
+must serialize calls to `simson_value_parse` and `simson_value_serialize` or
+ensure a consistent locale across threads.
+
 ## Limitations
 
 - Numbers are stored as `double`. Parsing rejects numbers that are not
