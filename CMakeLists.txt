@@ -24,6 +24,18 @@ target_include_directories(simson PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(SIMSON_BUILD_EXAMPLES_DEFAULT ON)
+else()
+    set(SIMSON_BUILD_EXAMPLES_DEFAULT OFF)
+endif()
+option(SIMSON_BUILD_EXAMPLES "Build example programs" ${SIMSON_BUILD_EXAMPLES_DEFAULT})
+
+if(SIMSON_BUILD_EXAMPLES)
+    add_executable(simson_example examples/basic.c)
+    target_link_libraries(simson_example PRIVATE simson)
+endif()
+
 if(BUILD_TESTING)
     file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/tests/data" SIMSON_TEST_DATA_DIR)
 
@@ -41,6 +53,12 @@ if(BUILD_TESTING)
     add_test(NAME test_parsing COMMAND test_parsing)
     add_test(NAME test_serialization COMMAND test_serialization)
     add_test(NAME test_crud COMMAND test_crud)
+
+    if(TARGET simson_example)
+        add_test(NAME test_example COMMAND simson_example)
+        set_tests_properties(test_example PROPERTIES
+            PASS_REGULAR_EXPRESSION "\"active\": true")
+    endif()
 endif()
 
 install(TARGETS simson

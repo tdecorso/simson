@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.compiler }} / shared=${{ matrix.shared }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        shared: [OFF, ON]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_C_COMPILER=${{ matrix.compiler }}
+          -DBUILD_SHARED_LIBS=${{ matrix.shared }}
+          -DSIMSON_BUILD_EXAMPLES=ON
+          -DCMAKE_C_FLAGS="-Wall -Wextra -Wpedantic -Werror"
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Test with comma-decimal locale
+        if: matrix.compiler == 'gcc' && matrix.shared == 'OFF'
+        run: |
+          mkdir -p "$RUNNER_TEMP/locales"
+          localedef -i de_DE -f UTF-8 "$RUNNER_TEMP/locales/de_DE.UTF-8"
+          LOCPATH="$RUNNER_TEMP/locales" ctest --test-dir build --output-on-failure
+
+  sanitizers:
+    name: ASan + UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DSIMSON_BUILD_EXAMPLES=ON
+          -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
+
+  install-consumer:
+    name: Install + find_package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTING=OFF
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Install
+        run: cmake --install build --prefix "${{ runner.temp }}/simson"
+      - name: Configure consumer
+        run: >
+          cmake -S tests/consumer -B consumer-build
+          -DCMAKE_PREFIX_PATH="${{ runner.temp }}/simson"
+      - name: Build consumer
+        run: cmake --build consumer-build --parallel
+      - name: Run consumer
+        run: ./consumer-build/simson_consumer

@@ -1,5 +1,7 @@
 # simson
 
+[![CI](https://github.com/tdecorso/simson/actions/workflows/ci.yml/badge.svg)](https://github.com/tdecorso/simson/actions/workflows/ci.yml)
+
 A small JSON parser and serializer for C99.
 
 `simson` provides parsing, serialization, and direct CRUD operations on JSON
@@ -24,6 +26,15 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+This also builds `simson_example` from `examples/basic.c`. Run it with:
+
+```sh
+./build/simson_example
+```
+
+To build only the library without the example, configure with
+`-DSIMSON_BUILD_EXAMPLES=OFF`.
+
 To build a shared library instead of a static one:
 
 ```sh
@@ -41,6 +52,16 @@ With CMake:
 ```cmake
 find_package(simson 0.1 CONFIG REQUIRED)
 target_link_libraries(my_app PRIVATE simson::simson)
+```
+
+A committed consumer smoke test lives in `tests/consumer`; CI uses it to verify
+the installed package:
+
+```sh
+cmake --install build --prefix "$PWD/install"
+cmake -S tests/consumer -B consumer-build -DCMAKE_PREFIX_PATH="$PWD/install"
+cmake --build consumer-build
+./consumer-build/simson_consumer
 ```
 
 ## Usage
