@@ -33,6 +33,23 @@
 #define SIMSON_VERSION_PATCH 0
 #define SIMSON_VERSION "0.1.0"
 
+
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  if defined(SIMSON_BUILDING_LIBRARY)
+#    define SIMSON_API __declspec(dllexport)
+#  elif defined(SIMSON_SHARED)
+#    define SIMSON_API __declspec(dllimport)
+#  else
+#    define SIMSON_API
+#  endif
+#else
+#  if defined(SIMSON_BUILDING_LIBRARY) && defined(SIMSON_DEFAULT_VISIBILITY)
+#    define SIMSON_API __attribute__((visibility("default")))
+#  else
+#    define SIMSON_API
+#  endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -133,13 +150,13 @@ typedef struct simson_error {
  *
  * Returns NULL on allocation failure.
  */
-simson_value_t* simson_value_create(simson_type_t type);
+SIMSON_API simson_value_t* simson_value_create(simson_type_t type);
 
 /*
  * Recursively destroy a value, including all of its children.
  * Safe to call with NULL.
  */
-void simson_value_destroy(simson_value_t* v);
+SIMSON_API void simson_value_destroy(simson_value_t* v);
 
 /* ========================================================================== */
 /* Construction                                                               */
@@ -153,12 +170,12 @@ void simson_value_destroy(simson_value_t* v);
  * must already be escaped and must not include the surrounding quotes. A NULL
  * text pointer is allowed only when len is zero.
  */
-simson_value_t* simson_value_null(void);
-simson_value_t* simson_value_bool(bool value);
-simson_value_t* simson_value_number(double value);
-simson_value_t* simson_value_string(const char* text, size_t len);
-simson_value_t* simson_value_array(void);
-simson_value_t* simson_value_object(void);
+SIMSON_API simson_value_t* simson_value_null(void);
+SIMSON_API simson_value_t* simson_value_bool(bool value);
+SIMSON_API simson_value_t* simson_value_number(double value);
+SIMSON_API simson_value_t* simson_value_string(const char* text, size_t len);
+SIMSON_API simson_value_t* simson_value_array(void);
+SIMSON_API simson_value_t* simson_value_object(void);
 
 /* ========================================================================== */
 /* Value access                                                               */
@@ -174,10 +191,10 @@ simson_value_t* simson_value_object(void);
  * JSON text. The pointer remains valid until the value is destroyed or
  * modified, and is not NUL-terminated.
  */
-int simson_value_type(const simson_value_t* v, simson_type_t* out);
-int simson_value_get_bool(const simson_value_t* v, bool* out);
-int simson_value_get_number(const simson_value_t* v, double* out);
-int simson_value_get_string(const simson_value_t* v, const char** data, size_t* len);
+SIMSON_API int simson_value_type(const simson_value_t* v, simson_type_t* out);
+SIMSON_API int simson_value_get_bool(const simson_value_t* v, bool* out);
+SIMSON_API int simson_value_get_number(const simson_value_t* v, double* out);
+SIMSON_API int simson_value_get_string(const simson_value_t* v, const char** data, size_t* len);
 
 /* ========================================================================== */
 /* Arrays                                                                     */
@@ -190,25 +207,25 @@ int simson_value_get_string(const simson_value_t* v, const char** data, size_t* 
  * from 0 through the current length; the other indexed operations require
  * index < length. Mutators take ownership of `value` on success.
  */
-int simson_array_len(const simson_value_t* v, size_t* len);
+SIMSON_API int simson_array_len(const simson_value_t* v, size_t* len);
 
 /* Borrow the element at `index`. */
-int simson_array_get(const simson_value_t* v, size_t index, simson_value_t** out);
+SIMSON_API int simson_array_get(const simson_value_t* v, size_t index, simson_value_t** out);
 
 /* Append a value, taking ownership on success. */
-int simson_array_append(simson_value_t* v, simson_value_t* value);
+SIMSON_API int simson_array_append(simson_value_t* v, simson_value_t* value);
 
 /* Insert at `index`, shifting later elements right. */
-int simson_array_insert(simson_value_t* v, size_t index, simson_value_t* value);
+SIMSON_API int simson_array_insert(simson_value_t* v, size_t index, simson_value_t* value);
 
 /* Replace the element at `index`; the old value is destroyed. */
-int simson_array_set(simson_value_t* v, size_t index, simson_value_t* value);
+SIMSON_API int simson_array_set(simson_value_t* v, size_t index, simson_value_t* value);
 
 /*
  * Detach and return the element at `index`.
  * The caller must destroy the returned value.
  */
-simson_value_t* simson_array_remove(simson_value_t* v, size_t index);
+SIMSON_API simson_value_t* simson_array_remove(simson_value_t* v, size_t index);
 
 /* ========================================================================== */
 /* Objects                                                                    */
@@ -221,13 +238,13 @@ simson_value_t* simson_array_remove(simson_value_t* v, size_t index);
  * Mutations keep keys unique: setting an existing key replaces its value in
  * place, preserving insertion order. Iteration order is insertion order.
  */
-int simson_object_len(const simson_value_t* v, size_t* len);
+SIMSON_API int simson_object_len(const simson_value_t* v, size_t* len);
 
 /*
  * Borrow the value stored under `key`.
  * Returns non-zero if the key is not present.
  */
-int simson_object_get(const simson_value_t* v, const char* key, size_t key_len, simson_value_t** out);
+SIMSON_API int simson_object_get(const simson_value_t* v, const char* key, size_t key_len, simson_value_t** out);
 
 /*
  * Borrow the key at `index`.
@@ -235,19 +252,19 @@ int simson_object_get(const simson_value_t* v, const char* key, size_t key_len, 
  * The returned pointer remains valid until the object is destroyed or
  * modified, and is not NUL-terminated.
  */
-int simson_object_key(const simson_value_t* v, size_t index, const char** key, size_t* key_len);
+SIMSON_API int simson_object_key(const simson_value_t* v, size_t index, const char** key, size_t* key_len);
 
 /*
  * Set `key` to `value`, taking ownership of `value` on success.
  * If the key already exists, its old value is destroyed and replaced.
  */
-int simson_object_set(simson_value_t* v, const char* key, size_t key_len, simson_value_t* value);
+SIMSON_API int simson_object_set(simson_value_t* v, const char* key, size_t key_len, simson_value_t* value);
 
 /*
  * Detach and return the value stored under `key`.
  * Returns NULL if the key is not present. The caller must destroy the value.
  */
-simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t key_len);
+SIMSON_API simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t key_len);
 
 /* ========================================================================== */
 /* Parsing and serialization                                                  */
@@ -261,7 +278,7 @@ simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t 
  * Returns an owned value, or NULL if the input is invalid or has trailing
  * non-whitespace content. On failure, stores error details in `error`.
  */
-simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_t* error);
+SIMSON_API simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_t* error);
 
 /*
  * Serialize `v` as JSON.
@@ -276,7 +293,7 @@ simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_
  * Strings are emitted by wrapping their stored raw JSON text in quotes, so
  * string values must contain valid escaped content.
  */
-int simson_value_serialize(simson_value_t* v, bool pretty, char** buffer, size_t* len);
+SIMSON_API int simson_value_serialize(simson_value_t* v, bool pretty, char** buffer, size_t* len);
 
 #ifdef __cplusplus
 }

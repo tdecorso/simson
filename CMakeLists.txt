@@ -12,6 +12,15 @@ add_library(simson ${SRCS})
 add_library(simson::simson ALIAS simson)
 
 target_compile_features(simson PUBLIC c_std_99)
+target_compile_definitions(simson PRIVATE SIMSON_BUILDING_LIBRARY)
+if(NOT WIN32)
+    set_target_properties(simson PROPERTIES C_VISIBILITY_PRESET hidden)
+    target_compile_definitions(simson PRIVATE SIMSON_DEFAULT_VISIBILITY)
+endif()
+get_target_property(SIMSON_LIBRARY_TYPE simson TYPE)
+if(SIMSON_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+    target_compile_definitions(simson PUBLIC SIMSON_SHARED)
+endif()
 set_target_properties(simson PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED YES
