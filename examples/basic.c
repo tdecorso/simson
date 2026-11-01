@@ -6,7 +6,8 @@
 
 int main(void) {
     const char* input = "{\"name\":\"simson\",\"tags\":[\"json\",\"c\"]}";
-    simson_value_t* root = simson_value_parse(input, strlen(input));
+    simson_error_t error;
+    simson_value_t* root = simson_value_parse(input, strlen(input), &error);
     if (!root) {
         fputs("parse failed\n", stderr);
         return 1;

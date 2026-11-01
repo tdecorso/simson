@@ -151,7 +151,8 @@ int main(void) {
     simson_value_destroy(obj);
 
     const char* json = "{\"name\":\"x\",\"items\":[1,2]}";
-    simson_value_t* root = simson_value_parse(json, strlen(json));
+    simson_error_t error;
+    simson_value_t* root = simson_value_parse(json, strlen(json), &error);
     CHECK(root != NULL);
     simson_value_t* items = NULL;
     CHECK(simson_object_get(root, "items", 5, &items) == 0);

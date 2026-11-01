@@ -107,6 +107,19 @@ struct simson_value {
     } as;
 };
 
+typedef enum simson_error_code {
+    SIMSON_OK = 0,
+    SIMSON_ERR_INVALID_JSON = 1
+} simson_error_code_t;
+
+typedef struct simson_error {
+    simson_error_code_t code;
+    size_t offset;
+    size_t line;
+    size_t column;
+    const char* message;
+} simson_error_t;
+
 /* ========================================================================== */
 /* Lifetime                                                                   */
 /* ========================================================================== */
@@ -246,9 +259,9 @@ simson_value_t* simson_object_remove(simson_value_t* v, const char* key, size_t 
  * The buffer does not need to be NUL-terminated. Leading and trailing JSON
  * whitespace is allowed. Numbers must be representable as finite doubles.
  * Returns an owned value, or NULL if the input is invalid or has trailing
- * non-whitespace content.
+ * non-whitespace content. On failure, stores error details in `error`.
  */
-simson_value_t* simson_value_parse(const char* buffer, size_t len);
+simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_t* error);
 
 /*
  * Serialize `v` as JSON.
