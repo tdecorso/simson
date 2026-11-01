@@ -538,8 +538,8 @@ static simson_text_t* parse_text(parser_t* p) {
 
     while (1) {
         u32 cp = 0; size_t cp_len = 0;
-        if (utf8_decode(p->cur, 0, (size_t) (p->end - p->cur), &cp, &cp_len)) { p->error_message = "invalid JSON: invalid string"; return NULL; }
-        if (cp == '\0') { p->error_message = "invalid JSON: invalid string"; return NULL; }
+        if (utf8_decode(p->cur, 0, (size_t) (p->end - p->cur), &cp, &cp_len)) { p->error_message = "invalid JSON: invalid UTF-8 in string"; return NULL; }
+        if (cp == '\0') { p->error_message = "invalid JSON: unexpected end of string"; return NULL; }
         if (cp == '"') {
             advance(p);
             break;
@@ -558,27 +558,29 @@ static simson_text_t* parse_text(parser_t* p) {
             if (c == 'u') {
                 advance(p);
                 u32 w1 = parse_hex(p);
-                if (w1 > 0xFFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
+                if (w1 > 0xFFFF) { p->error_message = "invalid JSON: invalid unicode escape"; return NULL; }
                 if (w1 >= 0xD800 && w1 <= 0xDFFF) {
                     c = peek(p);
-                    if (c != '\\') { p->error_message = "invalid JSON: invalid string"; return NULL; }
+                    if (c != '\\') { p->error_message = "invalid JSON: expected backslash in surrogate pair"; return NULL; }
                     advance(p);
                     c = peek(p);
-                    if (c != 'u') { p->error_message = "invalid JSON: invalid string"; return NULL; }
+                    if (c != 'u') { p->error_message = "invalid JSON: expected u in surrogate pair"; return NULL; }
                     advance(p);
                     u32 w2 = parse_hex(p);
-                    if (w2 < 0xDC00 || w2 > 0xDFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
-                    if (w2 > 0xFFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
-                } else if (w1 >= 0xDC00 && w1 <= 0xDFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
+                    if (w2 < 0xDC00 || w2 > 0xDFFF) { p->error_message = "invalid JSON: invalid UTF-16 surrogate pair"; return NULL; }
+                    if (w2 > 0xFFFF) { p->error_message = "invalid JSON: invalid unicode escape"; return NULL; }
+                } else if (w1 >= 0xDC00 && w1 <= 0xDFFF) { p->error_message = "invalid JSON: lone UTF-16 surrogate"; return NULL; }
                 continue;
             }
         }
-        { p->error_message = "invalid JSON: invalid string"; return NULL; }
+        { p->error_message = "invalid JSON: invalid escape sequence"; return NULL; }
     }
     u8 c = peek(p);
-    if (is_alpha(c)) { p->error_message = "invalid JSON: invalid string"; return NULL; }
+    if (is_alpha(c)) { p->error_message = "invalid JSON: invalid character after string"; return NULL; }
     size_t required = (size_t) (p->cur - start) - 1;
-    return text_create((const char*)start, required);
+    simson_text_t* text = text_create((const char*)start, required);
+    if (!text) p->error_message = "invalid JSON: out of memory";
+    return text;
 }
 
 static simson_value_t* parse_string(parser_t* p) {
@@ -600,7 +602,7 @@ static simson_value_t* parse_literal(parser_t* p, const char* pattern, size_t le
     for (size_t i = 0; i < len; i++) {
         u8 c = peek(p);
         if (c != pattern[i]) {
-            p->error_message = "invalid JSON: invalid literal";
+            p->error_message = "invalid JSON: expected true, false, or null";
             return NULL;
         }
         advance(p);
@@ -679,14 +681,14 @@ static simson_value_t* parse_number(parser_t* p) {
             advance(p);
         }
     } else {
-        p->error_message = "invalid JSON: invalid number";
+        p->error_message = "invalid JSON: expected digit";
         return NULL;
     }
     if (c == '.') {
         advance(p);
         c = peek(p);
         if (!is_digit(c)) {
-            p->error_message = "invalid JSON: invalid number";
+            p->error_message = "invalid JSON: expected digit after decimal point";
             return NULL;
         }
         advance(p);
@@ -704,7 +706,7 @@ static simson_value_t* parse_number(parser_t* p) {
             c = peek(p);
         }
         if (!is_digit(c)) {
-            p->error_message = "invalid JSON: invalid number";
+            p->error_message = "invalid JSON: expected digit in exponent";
             return NULL;
         }
         advance(p);
@@ -716,17 +718,23 @@ static simson_value_t* parse_number(parser_t* p) {
     }
     size_t len = (size_t) (p->cur - start);
     char* buffer = malloc(len + 1);
-    if (!buffer) return NULL;
+    if (!buffer) {
+        p->error_message = "invalid JSON: out of memory";
+        return NULL;
+    }
     memcpy(buffer, start, len);
     buffer[len] = '\0';
     double number = parse_double(buffer);
     free(buffer);
     if (!isfinite(number)) {
-        p->error_message = "invalid JSON: non-finite number";
+        p->error_message = "invalid JSON: number is not finite";
         return NULL;
     }
     simson_value_t* v = simson_value_create(SIMSON_NUMBER);
-    if (!v) return NULL;
+    if (!v) {
+        p->error_message = "invalid JSON: out of memory";
+        return NULL;
+    }
     v->as.number = number;
     return v;
 }
@@ -787,7 +795,7 @@ static simson_value_t* parse_array(parser_t* p) {
         p->depth--;
         return v;
     }
-    p->error_message = "invalid JSON: invalid array";
+    p->error_message = "invalid JSON: expected ',' or ']'";
     simson_value_destroy(v);
     return NULL;
 }
@@ -798,7 +806,7 @@ static simson_member_t* parse_member(parser_t* p) {
     if (!t) return NULL;
     u8 c = peek(p);
     if (c != ':') {
-        p->error_message = "invalid JSON: invalid object";
+        p->error_message = "invalid JSON: expected ':' after object key";
         text_destroy(t);
         return NULL;
     }
@@ -870,7 +878,7 @@ static simson_value_t* parse_object(parser_t* p) {
         p->depth--;
         return v;
     }
-    p->error_message = "invalid JSON: invalid object";
+    p->error_message = "invalid JSON: expected ',' or '}'";
     simson_value_destroy(v);
     return NULL;
 }
@@ -897,7 +905,7 @@ static simson_value_t* parse_value(parser_t* p) {
 
     if (is_digit(c)) return parse_number(p);
 
-    p->error_message = "invalid JSON: invalid value";
+    p->error_message = "invalid JSON: unexpected character";
     return NULL;
 }
 
@@ -909,13 +917,23 @@ simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_
         error->column = 0;
         error->message = NULL;
     }
-    if (!buffer || len == 0) {
+    if (!buffer) {
         if (error) {
             error->code = SIMSON_ERR_INVALID_JSON;
             error->offset = 0;
             error->line = 1;
             error->column = 0;
-            error->message = "invalid JSON";
+            error->message = "invalid JSON: null buffer";
+        }
+        return NULL;
+    }
+    if (len == 0) {
+        if (error) {
+            error->code = SIMSON_ERR_INVALID_JSON;
+            error->offset = 0;
+            error->line = 1;
+            error->column = 0;
+            error->message = "invalid JSON: empty input";
         }
         return NULL;
     }
@@ -938,7 +956,7 @@ simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_
             error->offset = (size_t) (parser.cur - parser.start);
             error->line = parser.line;
             error->column = parser.col;
-            error->message = parser.error_message ? parser.error_message : "invalid JSON";
+            error->message = "invalid JSON: trailing data after value";
         }
         simson_value_destroy(result);
         return NULL;
