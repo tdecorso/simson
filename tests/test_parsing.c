@@ -74,7 +74,7 @@ static int expect_parse_error(const char* input, size_t expected_offset, size_t 
         printf("FAIL %s: expected column %zu, got %zu\n", input, expected_column, error.column);
         return 1;
     }
-    if (error.message == NULL || strcmp(error.message, "invalid JSON") != 0) {
+    if (error.message == NULL || strncmp(error.message, "invalid JSON", 12) != 0) {
         printf("FAIL %s: expected invalid JSON message\n", input);
         return 1;
     }
@@ -393,5 +393,6 @@ int main(void) {
     if (expect_parse_error("{\"a\":", 5, 1, 4)) return 1;
     if (expect_parse_error("{}x", 2, 1, 2)) return 1;
     if (expect_parse_error("01", 1, 1, 1)) return 1;
+    if (expect_parse_error("00", 1, 1, 1)) return 1;
     return 0;
 }

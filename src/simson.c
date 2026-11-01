@@ -20,6 +20,7 @@ typedef struct parser {
     size_t line;
     size_t col;
     size_t depth;
+    const char* error_message;
 } parser_t;
 
 static simson_text_t* text_create(const char* text, size_t len) {
@@ -417,6 +418,7 @@ static void parser_init(parser_t* p, const u8* buffer, size_t len) {
     p->line = 1;
     p->col = 0;
     p->depth = 0;
+    p->error_message = "invalid JSON";
 }
 
 static bool at_end(parser_t* p) {
@@ -536,8 +538,8 @@ static simson_text_t* parse_text(parser_t* p) {
 
     while (1) {
         u32 cp = 0; size_t cp_len = 0;
-        if (utf8_decode(p->cur, 0, (size_t) (p->end - p->cur), &cp, &cp_len)) return NULL;
-        if (cp == '\0') return NULL;
+        if (utf8_decode(p->cur, 0, (size_t) (p->end - p->cur), &cp, &cp_len)) { p->error_message = "invalid JSON: invalid string"; return NULL; }
+        if (cp == '\0') { p->error_message = "invalid JSON: invalid string"; return NULL; }
         if (cp == '"') {
             advance(p);
             break;
@@ -556,32 +558,35 @@ static simson_text_t* parse_text(parser_t* p) {
             if (c == 'u') {
                 advance(p);
                 u32 w1 = parse_hex(p);
-                if (w1 > 0xFFFF) return NULL;
+                if (w1 > 0xFFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
                 if (w1 >= 0xD800 && w1 <= 0xDFFF) {
                     c = peek(p);
-                    if (c != '\\') return NULL;
+                    if (c != '\\') { p->error_message = "invalid JSON: invalid string"; return NULL; }
                     advance(p);
                     c = peek(p);
-                    if (c != 'u') return NULL;
+                    if (c != 'u') { p->error_message = "invalid JSON: invalid string"; return NULL; }
                     advance(p);
                     u32 w2 = parse_hex(p);
-                    if (w2 < 0xDC00 || w2 > 0xDFFF) return NULL;
-                    if (w2 > 0xFFFF) return NULL;
-                } else if (w1 >= 0xDC00 && w1 <= 0xDFFF) return NULL;
+                    if (w2 < 0xDC00 || w2 > 0xDFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
+                    if (w2 > 0xFFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
+                } else if (w1 >= 0xDC00 && w1 <= 0xDFFF) { p->error_message = "invalid JSON: invalid string"; return NULL; }
                 continue;
             }
         }
-        return NULL;
+        { p->error_message = "invalid JSON: invalid string"; return NULL; }
     }
     u8 c = peek(p);
-    if (is_alpha(c)) return NULL;
+    if (is_alpha(c)) { p->error_message = "invalid JSON: invalid string"; return NULL; }
     size_t required = (size_t) (p->cur - start) - 1;
     return text_create((const char*)start, required);
 }
 
 static simson_value_t* parse_string(parser_t* p) {
     simson_text_t* text = parse_text(p);
-    if (!text) return NULL;
+    if (!text) {
+        if (!p->error_message || strcmp(p->error_message, "invalid JSON") == 0) p->error_message = "invalid JSON: invalid string";
+        return NULL;
+    }
     simson_value_t* v = simson_value_create(SIMSON_STRING);
     if (!v) {
         text_destroy(text);
@@ -594,7 +599,10 @@ static simson_value_t* parse_string(parser_t* p) {
 static simson_value_t* parse_literal(parser_t* p, const char* pattern, size_t len) {
     for (size_t i = 0; i < len; i++) {
         u8 c = peek(p);
-        if (c != pattern[i]) return NULL;
+        if (c != pattern[i]) {
+            p->error_message = "invalid JSON: invalid literal";
+            return NULL;
+        }
         advance(p);
     }
     simson_type_t type = pattern[0] == 'n' ? SIMSON_NULL : SIMSON_BOOL;
@@ -657,7 +665,10 @@ static simson_value_t* parse_number(parser_t* p) {
     if (c == '0') {
         advance(p);
         c = peek(p);
-        if (is_digit(c)) return NULL;
+        if (is_digit(c)) {
+            p->error_message = "invalid JSON: leading zero in number";
+            return NULL;
+        }
     }
     else if (is_digit1_9(c)) {
         advance(p);
@@ -667,11 +678,17 @@ static simson_value_t* parse_number(parser_t* p) {
             if (!is_digit(c)) break;
             advance(p);
         }
-    } else return NULL;
+    } else {
+        p->error_message = "invalid JSON: invalid number";
+        return NULL;
+    }
     if (c == '.') {
         advance(p);
         c = peek(p);
-        if (!is_digit(c)) return NULL;
+        if (!is_digit(c)) {
+            p->error_message = "invalid JSON: invalid number";
+            return NULL;
+        }
         advance(p);
         while (1) {
             c = peek(p);
@@ -686,7 +703,10 @@ static simson_value_t* parse_number(parser_t* p) {
             advance(p);
             c = peek(p);
         }
-        if (!is_digit(c)) return NULL;
+        if (!is_digit(c)) {
+            p->error_message = "invalid JSON: invalid number";
+            return NULL;
+        }
         advance(p);
         while (1) {
             c = peek(p);
@@ -701,7 +721,10 @@ static simson_value_t* parse_number(parser_t* p) {
     buffer[len] = '\0';
     double number = parse_double(buffer);
     free(buffer);
-    if (!isfinite(number)) return NULL;
+    if (!isfinite(number)) {
+        p->error_message = "invalid JSON: non-finite number";
+        return NULL;
+    }
     simson_value_t* v = simson_value_create(SIMSON_NUMBER);
     if (!v) return NULL;
     v->as.number = number;
@@ -711,7 +734,10 @@ static simson_value_t* parse_number(parser_t* p) {
 static simson_value_t* parse_value(parser_t* p);
 
 static simson_value_t* parse_array(parser_t* p) {
-    if (p->depth > MAX_DEPTH) return NULL;
+    if (p->depth > MAX_DEPTH) {
+        p->error_message = "invalid JSON: nesting too deep";
+        return NULL;
+    }
     simson_value_t* v = simson_value_create(SIMSON_ARRAY);
     if (!v) return NULL;
     advance(p);
@@ -724,6 +750,7 @@ static simson_value_t* parse_array(parser_t* p) {
     }
     v->as.array = array_create(DEFAULT_ARRAY_CAPACITY);
     if (!v->as.array) {
+        p->error_message = "invalid JSON: out of memory";
         simson_value_destroy(v);
         return NULL;
     }
@@ -760,6 +787,7 @@ static simson_value_t* parse_array(parser_t* p) {
         p->depth--;
         return v;
     }
+    p->error_message = "invalid JSON: invalid array";
     simson_value_destroy(v);
     return NULL;
 }
@@ -770,6 +798,7 @@ static simson_member_t* parse_member(parser_t* p) {
     if (!t) return NULL;
     u8 c = peek(p);
     if (c != ':') {
+        p->error_message = "invalid JSON: invalid object";
         text_destroy(t);
         return NULL;
     }
@@ -789,7 +818,10 @@ static simson_member_t* parse_member(parser_t* p) {
 }
 
 static simson_value_t* parse_object(parser_t* p) {
-    if (p->depth > MAX_DEPTH) return NULL;
+    if (p->depth > MAX_DEPTH) {
+        p->error_message = "invalid JSON: nesting too deep";
+        return NULL;
+    }
     simson_value_t* v = simson_value_create(SIMSON_OBJECT);
     if (!v) return NULL;
     advance(p);
@@ -802,6 +834,7 @@ static simson_value_t* parse_object(parser_t* p) {
     }
     v->as.object = object_create(DEFAULT_OBJECT_CAPACITY);
     if (!v->as.object) {
+        p->error_message = "invalid JSON: out of memory";
         simson_value_destroy(v);
         return NULL;
     }
@@ -837,6 +870,7 @@ static simson_value_t* parse_object(parser_t* p) {
         p->depth--;
         return v;
     }
+    p->error_message = "invalid JSON: invalid object";
     simson_value_destroy(v);
     return NULL;
 }
@@ -863,6 +897,7 @@ static simson_value_t* parse_value(parser_t* p) {
 
     if (is_digit(c)) return parse_number(p);
 
+    p->error_message = "invalid JSON: invalid value";
     return NULL;
 }
 
@@ -892,7 +927,7 @@ simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_
             error->offset = (size_t) (parser.cur - parser.start);
             error->line = parser.line;
             error->column = parser.col;
-            error->message = "invalid JSON";
+            error->message = parser.error_message ? parser.error_message : "invalid JSON";
         }
         return NULL;
     }
@@ -903,7 +938,7 @@ simson_value_t* simson_value_parse(const char* buffer, size_t len, simson_error_
             error->offset = (size_t) (parser.cur - parser.start);
             error->line = parser.line;
             error->column = parser.col;
-            error->message = "invalid JSON";
+            error->message = parser.error_message ? parser.error_message : "invalid JSON";
         }
         simson_value_destroy(result);
         return NULL;
